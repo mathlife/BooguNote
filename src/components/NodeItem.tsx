@@ -94,15 +94,22 @@ export const NodeItem: React.FC<NodeItemProps> = ({
     }
   }, [isFocused]);
 
-  // 计算文字块宽度样式（兼容 PC 与移动端自适应宽度）
+  // 计算文字块宽度样式（自动减去当前层级缩进，确保窄窗口下不产生多余底部横向滚动条）
   const getBlockWidthStyle = (): React.CSSProperties => {
+    const indentOffset = level * config.indentSize + 58;
     if (node.blockWidth === 'wide') {
-      return { width: `${config.wideWidth}px`, maxWidth: 'calc(100vw - 68px)' };
+      return { width: `${config.wideWidth}px` };
     }
     if (node.blockWidth === 'shrink' && !isFocused) {
-      return { width: `${config.narrowWidth}px`, maxWidth: 'calc(100vw - 68px)' };
+      return {
+        width: `${config.narrowWidth}px`,
+        maxWidth: `calc(100vw - ${indentOffset}px)`,
+      };
     }
-    return { width: `${config.narrowWidth}px`, maxWidth: 'calc(100vw - 68px)' };
+    return {
+      width: `${config.narrowWidth}px`,
+      maxWidth: `calc(100vw - ${indentOffset}px)`,
+    };
   };
 
   // 处理文本块内的全键盘快捷键

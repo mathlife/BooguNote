@@ -71,7 +71,7 @@ import { MobileActionDock } from './components/MobileActionDock';
 import { MainMenuDropdown } from './components/MainMenuDropdown';
 
 const STORAGE_KEY_TABS = 'boogunote_next_tabs_v2';
-const STORAGE_KEY_CONFIG = 'boogunote_next_config_v4';
+const STORAGE_KEY_CONFIG = 'boogunote_next_config_v5';
 const STORAGE_KEY_SYNC = 'boogunote_next_sync_v1';
 
 // 构建默认初始标签页（现代指南.md + 原版教程.boo）
@@ -133,7 +133,7 @@ const DEFAULT_SYNC_CONFIG: CloudSyncConfig = {
 };
 
 export const App: React.FC = () => {
-  // 加载应用配置
+  // 加载应用配置（每次启动默认正常窗口且不强制置顶，避免遮挡其他程序）
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
@@ -143,6 +143,7 @@ export const App: React.FC = () => {
           ...DEFAULT_CONFIG,
           ...parsed,
           dockMode: 'normal',
+          alwaysOnTop: false,
         };
       }
     } catch {
@@ -231,10 +232,11 @@ export const App: React.FC = () => {
   }, []);
 
   // 切换窗口停靠模式（正常窗口 / 靠边窗口 / 自动隐藏窗口）
+  // 非自动隐藏模式下默认不置顶，避免遮挡其他桌面程序
   const handleChangeDockState = useCallback(
     async (nextMode: WindowDockMode, nextEdge?: WindowDockEdge) => {
       const edge = nextEdge || config.dockEdge || 'right';
-      const nextTop = nextMode !== 'normal' ? true : config.alwaysOnTop;
+      const nextTop = nextMode === 'normal' ? false : config.alwaysOnTop;
       setConfig((prev) => ({
         ...prev,
         dockMode: nextMode,

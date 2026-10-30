@@ -412,10 +412,6 @@ namespace BooguNoteStandalone
                 {
                     alwaysOnTop = (topStr == "1" || topStr == "true");
                 }
-                else if (dockMode != "normal")
-                {
-                    alwaysOnTop = true;
-                }
 
                 isCollapsed = false;
                 isHiddenByCommand = false;
@@ -490,7 +486,6 @@ namespace BooguNoteStandalone
                                     expandedBounds = new Rectangle(x, workArea.Top, w, h);
                                     dockEdge = "top";
                                     dockMode = "auto-hide";
-                                    alwaysOnTop = true;
                                     lastExpandOrSnapTime = DateTime.UtcNow;
                                     SetWindowPos(hWnd, HWND_TOPMOST, expandedBounds.Left, expandedBounds.Top, expandedBounds.Width, expandedBounds.Height, SWP_SHOWWINDOW);
                                 }
@@ -529,7 +524,6 @@ namespace BooguNoteStandalone
                                         }
                                         dockEdge = detectedEdge;
                                         dockMode = "auto-hide";
-                                        alwaysOnTop = true;
                                         expandedBounds = ComputeSnappedExpandedRect(detectedEdge, workArea, baseRect, false);
                                         lastExpandOrSnapTime = DateTime.UtcNow;
                                         SetWindowPos(hWnd, HWND_TOPMOST, expandedBounds.Left, expandedBounds.Top, expandedBounds.Width, expandedBounds.Height, SWP_SHOWWINDOW);
@@ -537,6 +531,8 @@ namespace BooguNoteStandalone
                                     else if (dockMode != "normal")
                                     {
                                         dockMode = "normal";
+                                        IntPtr z = alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST;
+                                        SetWindowPos(hWnd, z, winRect.Left, winRect.Top, winRect.Width, winRect.Height, SWP_SHOWWINDOW);
                                         if (winRect.Width < workArea.Width * 0.45 && winRect.Height < workArea.Height * 0.9)
                                         {
                                             normalBounds = winRect;
@@ -544,6 +540,8 @@ namespace BooguNoteStandalone
                                     }
                                     else
                                     {
+                                        IntPtr z = alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST;
+                                        SetWindowPos(hWnd, z, winRect.Left, winRect.Top, winRect.Width, winRect.Height, SWP_SHOWWINDOW);
                                         if (winRect.Width < workArea.Width * 0.45 && winRect.Height < workArea.Height * 0.9)
                                         {
                                             normalBounds = winRect;

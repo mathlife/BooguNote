@@ -382,8 +382,6 @@ function applyDockState(nextPartial) {
   const targetAlwaysOnTop =
     nextPartial.alwaysOnTop !== undefined
       ? Boolean(nextPartial.alwaysOnTop)
-      : targetMode !== 'normal'
-      ? true
       : dockState.alwaysOnTop;
 
   dockState = {
@@ -436,7 +434,7 @@ function applyDockState(nextPartial) {
       true
     );
     mainWindow.setMinimumSize(260, 280);
-    mainWindow.setAlwaysOnTop(true, 'floating');
+    mainWindow.setAlwaysOnTop(Boolean(dockState.alwaysOnTop));
     setWindowBoundsSafe(expandedBounds, true);
   } else if (dockState.mode === 'auto-hide') {
     expandedBounds = calcSnappedExpandedBounds(
@@ -513,7 +511,6 @@ function createMainWindow() {
       expandedBounds = { x, y: wa.y, width: w, height: h };
       dockState.mode = 'auto-hide';
       dockState.edge = 'top';
-      dockState.alwaysOnTop = true;
       dockState.isCollapsed = false;
       hideEdgeIndicatorStrip();
       mainWindow.setAlwaysOnTop(true, 'floating');
@@ -528,7 +525,7 @@ function createMainWindow() {
 
   // 监听用户手动拖拽窗口：
   // 1. 拖到屏幕顶部/左侧/右侧边缘时自动触发对应边缘的【自动隐藏窗口】
-  // 2. 从屏幕边缘拖回屏幕中央时自动恢复【正常窗口】
+  // 2. 从屏幕边缘拖回屏幕中央时自动恢复【正常窗口】，并立即取消窗口置顶，避免遮挡其他程序
   let moveSnapDebounce = null;
   mainWindow.on('moved', () => {
     if (!mainWindow || dockState.isCollapsed || isProgrammaticMove) return;
@@ -579,22 +576,23 @@ function createMainWindow() {
         expandedBounds = calcSnappedExpandedBounds(detectedEdge, b, wa, false);
         dockState.mode = 'auto-hide';
         dockState.edge = detectedEdge;
-        dockState.alwaysOnTop = true;
         dockState.isCollapsed = false;
         hideEdgeIndicatorStrip();
         mainWindow.setAlwaysOnTop(true, 'floating');
         setWindowBoundsSafe(expandedBounds, true);
         notifyRendererDockState();
       } else if (dockState.mode !== 'normal') {
-        // 用户将窗口从边缘拖回屏幕中央：自动解除自动隐藏，恢复为自由移动的正常窄窗口
+        // 用户将窗口从边缘拖回屏幕中央：自动解除自动隐藏，恢复为自由移动的正常窄窗口，并取消置顶
         dockState.mode = 'normal';
         dockState.isCollapsed = false;
         hideEdgeIndicatorStrip();
+        mainWindow.setAlwaysOnTop(Boolean(dockState.alwaysOnTop));
         if (b.width < wa.width * 0.45 && b.height < wa.height * 0.9) {
           normalBounds = { ...b };
         }
         notifyRendererDockState();
       } else {
+        mainWindow.setAlwaysOnTop(Boolean(dockState.alwaysOnTop));
         if (b.width < wa.width * 0.45 && b.height < wa.height * 0.9) {
           normalBounds = { ...b };
         }
