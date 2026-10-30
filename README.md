@@ -9,6 +9,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/mathlife/BooguNote?color=2563eb&label=Release)](https://github.com/mathlife/BooguNote/releases/latest)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-1e40af)](#downloads)
 [![Format](https://img.shields.io/badge/Storage-Markdown%20%26%20.boo-16a34a)](#markdown-first--legacy-boo-compatibility)
+[![License: MIT](https://img.shields.io/badge/License-MIT-eab308.svg)](./LICENSE)
 
 **English** | [简体中文](./README.zh-CN.md)
 
@@ -129,4 +130,4 @@ python scripts/convert_boo_to_md.py path/to/notes.boo path/to/output.md
 
 ## License
 
-Released under the **MIT License**.
+Released under the **[MIT License](./LICENSE)**.

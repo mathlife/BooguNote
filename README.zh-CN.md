@@ -9,6 +9,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/mathlife/BooguNote?color=2563eb&label=Release)](https://github.com/mathlife/BooguNote/releases/latest)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-1e40af)](#全平台独立安装包下载)
 [![Format](https://img.shields.io/badge/Storage-Markdown%20%26%20.boo-16a34a)](#开放的-markdown-格式与-boo-无损兼容)
+[![License: MIT](https://img.shields.io/badge/License-MIT-eab308.svg)](./LICENSE)
 
 [English](./README.md) | **简体中文**
 
@@ -129,5 +130,5 @@ python scripts/convert_boo_to_md.py <输入.boo文件或目录> [输出.md文件
 
 ## 开源协议
 
-本项目基于 **MIT License** 开源。
+本项目基于 **[MIT License](./LICENSE)** 开源。
 
