@@ -367,9 +367,10 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
+            ),
           ),
 
           // 新建标签按键 (+)

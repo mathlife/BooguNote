@@ -13,7 +13,7 @@ jobs:
   # 1. 编译 Windows 原生无 Chrome 独立可执行程序 (.exe)
   build-windows-native:
     name: 编译 Windows 纯原生机器码程序 (x64)
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
       - name: 压缩打包 macOS 独立产物
         run: |
           cd build/macos/Build/Products/Release
-          zip -r ../../../../../BooguNote-Native-macOS.zip BooguNote.app
+          zip -r ../../../../../BooguNote-Native-macOS.zip *.app
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
