@@ -3,12 +3,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/doc_tab.dart';
 import '../models/app_config.dart';
 import '../models/outline_node.dart';
+import '../models/cloud_sync_config.dart';
 
 /// 本地会话与配置持久化服务（保证随时关闭随时接着写，启动记忆上次活动文档）
 class StorageService {
   static const _keyTabs = 'boogunote_native_tabs_v1';
   static const _keyActiveTab = 'boogunote_native_active_tab_v1';
   static const _keyConfig = 'boogunote_native_config_v1';
+  static const _keyCloudSync = 'boogunote_native_cloud_sync_v1';
 
   static Future<AppConfig> loadConfig() async {
     try {
@@ -25,6 +27,24 @@ class StorageService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyConfig, jsonEncode(config.toJson()));
+    } catch (_) {}
+  }
+
+  static Future<CloudSyncConfig> loadSyncConfig() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString(_keyCloudSync);
+      if (str != null) {
+        return CloudSyncConfig.fromJson(jsonDecode(str));
+      }
+    } catch (_) {}
+    return CloudSyncConfig();
+  }
+
+  static Future<void> saveSyncConfig(CloudSyncConfig config) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyCloudSync, jsonEncode(config.toJson()));
     } catch (_) {}
   }
 

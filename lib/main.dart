@@ -13,6 +13,7 @@ import 'utils/tree_ops.dart';
 import 'utils/sample_docs.dart';
 import 'widgets/node_item_widget.dart';
 import 'widgets/branch_connector.dart';
+import 'widgets/cloud_sync_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -103,6 +104,26 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
     Future.delayed(const Duration(milliseconds: 2500), () {
       if (mounted) setState(() => _saveToastMsg = null);
     });
+  }
+
+  void _openCloudSyncDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => CloudSyncDialog(
+        currentTabs: _tabs,
+        onTabsPulled: (pulledTabs) {
+          setState(() {
+            _tabs = pulledTabs;
+            if (_tabs.isNotEmpty) {
+              _activeTabId = _tabs.first.id;
+            }
+          });
+          StorageService.saveTabs(_tabs);
+          StorageService.saveActiveTabId(_activeTabId);
+          _showToast('已从云端拉取并同步 ${pulledTabs.length} 个文档！');
+        },
+      ),
+    );
   }
 
   Future<void> _syncDiskFiles() async {
@@ -637,6 +658,15 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
             constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
           ),
 
+          // 多端云同步按键
+          IconButton(
+            icon: const Icon(Icons.cloud_sync_outlined, size: 17, color: Color(0xFF2563EB)),
+            onPressed: _openCloudSyncDialog,
+            tooltip: '多端云同步设置 (GitHub/WebDAV)',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+
           // 右上角主菜单下拉按钮
           PopupMenuButton<String>(
             icon: const Icon(Icons.keyboard_arrow_down, size: 18),
@@ -654,6 +684,9 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
                   break;
                 case 'saveAs':
                   _saveAsCurrentDoc();
+                  break;
+                case 'cloudSync':
+                  _openCloudSyncDialog();
                   break;
                 case 'guide':
                   _openGuideDoc();
@@ -708,6 +741,17 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               const PopupMenuItem(value: 'open', child: Text('打开文档 (Ctrl+O)')),
               const PopupMenuItem(value: 'save', child: Text('保存文档 (Ctrl+S)')),
               const PopupMenuItem(value: 'saveAs', child: Text('另存文档 (Ctrl+Shift+S)')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'cloudSync',
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_sync_outlined, size: 16, color: Color(0xFF2563EB)),
+                    SizedBox(width: 8),
+                    Text('☁️ 多端云同步设置...'),
+                  ],
+                ),
+              ),
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'guide', child: Text('📖 打开 快速指南.md')),
               const PopupMenuItem(value: 'tutorial', child: Text('📖 打开 原版教程.boo')),
@@ -847,6 +891,17 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
             onPressed: curId != null ? () => _handleDeleteNode(curId) : null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: _openCloudSyncDialog,
+            icon: const Icon(Icons.cloud_sync_outlined, size: 14, color: Color(0xFF2563EB)),
+            label: const Text('多端同步', style: TextStyle(fontSize: 11, color: Color(0xFF2563EB))),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              minimumSize: const Size(0, 24),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
           ),
         ],
       ),
