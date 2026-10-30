@@ -71,12 +71,14 @@ function setWindowBoundsSafe(bounds, animate = false) {
   }, 220);
 }
 
-// 创建或更新贴在屏幕边缘的 3px 无边框透明指示线窗口（绝不产生 136px 蓝色方框，也不遮挡桌面图标点击）
+// 创建或更新贴在屏幕边缘的 4px 无边框透明指示线窗口
+// 关键：即便操作系统强制最小窗口宽度 (136px)，左侧隐藏时也将多余宽度移出屏幕左边界外 (x = workArea.x + 4 - actual.width)，
+// 确保屏幕内永远只露出 4px 边缘细条，与右侧隐藏和上方隐藏完全一致！
 function showEdgeIndicatorStrip(edge, expBounds, workArea) {
   if (!edgeBarWindow || edgeBarWindow.isDestroyed()) {
     edgeBarWindow = new BrowserWindow({
-      width: 10,
-      height: 10,
+      width: 6,
+      height: 6,
       minWidth: 1,
       minHeight: 1,
       frame: false,
@@ -99,44 +101,43 @@ function showEdgeIndicatorStrip(edge, expBounds, workArea) {
     edgeBarWindow.setIgnoreMouseEvents(true);
     const indicatorHtml = `data:text/html;charset=utf-8,${encodeURIComponent(
       `<!doctype html><html><head><style>
-        html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;}
-        .bar{position:fixed;background:#2563eb;border-radius:2px;box-shadow:0 0 4px rgba(37,99,235,0.7);}
-        body[data-edge="top"] .bar{top:0;left:0;right:0;height:3px;}
-        body[data-edge="left"] .bar{top:0;bottom:0;left:0;width:3px;}
-        body[data-edge="right"] .bar{top:0;bottom:0;right:0;width:3px;}
-      </style></head><body data-edge="right"><div class="bar"></div></body></html>`
+        html,body{margin:0;padding:0;width:100%;height:100%;background:#2563eb;overflow:hidden;}
+      </style></head><body></body></html>`
     )}`;
     edgeBarWindow.loadURL(indicatorHtml);
   }
 
-  let stripBounds;
+  const PEEK = 4;
   if (edge === 'top') {
-    stripBounds = {
-      x: expBounds.x,
-      y: workArea.y,
-      width: expBounds.width,
-      height: 6,
-    };
+    edgeBarWindow.setBounds(
+      { x: expBounds.x, y: workArea.y, width: expBounds.width, height: PEEK },
+      false
+    );
+    const actual = edgeBarWindow.getBounds();
+    if (actual.height > PEEK) {
+      edgeBarWindow.setPosition(expBounds.x, workArea.y + PEEK - actual.height, false);
+    }
   } else if (edge === 'left') {
-    stripBounds = {
-      x: workArea.x,
-      y: expBounds.y,
-      width: 6,
-      height: expBounds.height,
-    };
+    edgeBarWindow.setBounds(
+      { x: workArea.x, y: expBounds.y, width: PEEK, height: expBounds.height },
+      false
+    );
+    const actual = edgeBarWindow.getBounds();
+    if (actual.width > PEEK) {
+      edgeBarWindow.setPosition(workArea.x + PEEK - actual.width, expBounds.y, false);
+    }
   } else {
-    stripBounds = {
-      x: workArea.x + workArea.width - 6,
-      y: expBounds.y,
-      width: 6,
-      height: expBounds.height,
-    };
+    edgeBarWindow.setBounds(
+      {
+        x: workArea.x + workArea.width - PEEK,
+        y: expBounds.y,
+        width: PEEK,
+        height: expBounds.height,
+      },
+      false
+    );
   }
 
-  edgeBarWindow.webContents
-    .executeJavaScript(`document.body.setAttribute('data-edge', '${edge}');`)
-    .catch(() => {});
-  edgeBarWindow.setBounds(stripBounds, false);
   edgeBarWindow.setAlwaysOnTop(true, 'screen-saver');
   edgeBarWindow.showInactive();
 }
