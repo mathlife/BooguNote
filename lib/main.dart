@@ -540,6 +540,7 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               );
             }
             return Scaffold(
+              resizeToAvoidBottomInset: true,
               body: Column(
                 children: [
                   // 1. 顶部标签栏与主菜单
@@ -555,9 +556,11 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
 
                   // 4. 桌面端可选底部状态与提示
                   if (_config.showStatusBar && !_isMobile) _buildStatusBar(),
+
+                  // 5. 移动端触屏专属键盘辅助条 (紧随软键盘弹出升降，永远贴在输入法上边沿)
+                  if (_isMobile) _buildMobileAccessoryBar(),
                 ],
               ),
-              bottomNavigationBar: _isMobile ? _buildMobileAccessoryBar() : null,
               floatingActionButton: _saveToastMsg != null
                   ? Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
