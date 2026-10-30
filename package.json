@@ -22,6 +22,11 @@
     "icon": "public/icon.png",
     "compression": "maximum",
     "asar": true,
+    "electronLanguages": [
+      "zh-CN",
+      "en-US",
+      "zh-TW"
+    ],
     "directories": {
       "output": "release"
     },
