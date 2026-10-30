@@ -116,14 +116,19 @@ jobs:
         run: |
           npm run build
           if [ ! -d "ios" ]; then
-            npx cap add ios
+            npx cap add ios --packagemanager SPM
           fi
           npx cap sync ios
 
       - name: 使用 Xcode 编译 iOS 真机 App 并打包为 .ipa
         working-directory: ios/App
         run: |
-          xcodebuild -project App.xcodeproj \
+          if [ -d "App.xcworkspace" ]; then
+            XCODE_TARGET="-workspace App.xcworkspace"
+          else
+            XCODE_TARGET="-project App.xcodeproj"
+          fi
+          xcodebuild $XCODE_TARGET \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
