@@ -1,4 +1,4 @@
-name: Build All-Platform Standalone Apps (Win / Mac / Linux / Android)
+name: Build All-Platform Standalone Apps (Win / Mac / Linux / Android / iOS)
 
 on:
   push:
@@ -96,11 +96,57 @@ jobs:
           name: android-apk
           path: BooguNote-Android.apk
 
-  # 3. 自动汇总全平台独立安装包并发布到 GitHub Releases
+  # 3. 构建 iOS 独立可安装 IPA (BooguNote-iOS.ipa)
+  build-ios:
+    name: 构建 iOS 独立安装包 (.ipa)
+    runs-on: macos-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装前端与 Capacitor iOS 依赖
+        run: npm install --no-audit --no-fund
+
+      - name: 编译前端资源并生成 iOS Xcode 工程
+        run: |
+          npm run build
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+
+      - name: 使用 Xcode 编译 iOS 真机 App 并打包为 .ipa
+        working-directory: ios/App
+        run: |
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry ../../BooguNote-iOS.ipa Payload
+
+      - name: 上传 iOS IPA 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: BooguNote-iOS.ipa
+
+  # 4. 自动汇总全平台独立安装包并发布到 GitHub Releases
   publish-release:
     name: 发布全平台独立安装包至 GitHub Release
-    needs: [build-desktop, build-android]
-    if: always() && (needs.build-desktop.result == 'success' || needs.build-android.result == 'success')
+    needs: [build-desktop, build-android, build-ios]
+    if: always() && (needs.build-desktop.result == 'success' || needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: 下载所有平台构建产物
@@ -113,7 +159,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.1.0
-          name: "BooguNote Next v1.1.0 - 全平台独立可运行版 (Win / Mac / Linux / Android)"
+          name: "BooguNote Next v1.1.0 - 全平台独立可运行版 (Win / Mac / Linux / Android / iOS)"
           body: |
             ### 全平台独立可运行安装包下载
             - **Windows 独立免安装单文件版**：`BooguNote-Windows-Standalone.exe` (轻量秒开) / `BooguNote-Windows-Portable-x64.exe` (完整 Electron 内核)
@@ -121,10 +167,12 @@ jobs:
             - **macOS 独立桌面版**：`BooguNote-macOS-*.dmg`
             - **Linux 独立可执行版**：`BooguNote-Linux-x86_64.AppImage`
             - **Android 手机独立安装包**：`BooguNote-Android.apk`
+            - **iOS (iPhone / iPad) 独立安装包**：`BooguNote-iOS.ipa` (支持 AltStore / Sideloadly / TrollStore / 爱思助手签名安装)
           files: |
             artifacts/*.exe
             artifacts/*.dmg
             artifacts/*.AppImage
             artifacts/*.apk
+            artifacts/*.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
