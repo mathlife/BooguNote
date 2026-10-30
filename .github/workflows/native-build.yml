@@ -3,6 +3,7 @@ name: 编译纯原生跨平台应用 (零Chrome / 零Web引擎)
 on:
   push:
     branches:
+      - main
       - native
   workflow_dispatch:
 
