@@ -29,6 +29,17 @@
 
 ---
 
+## 🌿 架构与分支说明 (Branch Architecture)
+
+本项目同时维护两种不同技术路线的实现分支，您可以根据使用场景自由选择：
+
+| 分支名 | 技术架构 | 核心定位与优势 | 产物大小 | 适用平台 |
+| :--- | :--- | :--- | :---: | :--- |
+| **`main`**<br>*(推荐默认)* | **纯原生独立架构**<br>(Flutter / Skia GPU + C++ / Win32) | **零 Chrome / 零 Web 引擎**<br>• 直接编译为机器码，无 Chromium / Node 庞大内核<br>• 内存占用极低（~30MB），毫秒级极速冷启动<br>• 100% 还原 BooguNote 原版正交树枝折线与全键盘操作流<br>• 具备拖拽贴边吸附与移出自动隐藏为 4px 感应细条交互 | **~10.8 MB**<br>(绿色解压即用) | Windows x64<br>macOS (Apple Silicon / Intel) |
+| **`web`** | **现代 Web / Electron 架构**<br>(React + TypeScript + Vite + Electron + Capacitor) | **多端与云同步全生态覆盖**<br>• 支持浏览器在线运行与 PWA<br>• 支持打包为 Android APK 与 iOS IPA 移动端应用<br>• 内置多端无服务端云同步（GitHub 仓库 / Dropbox / Gist）<br>• 配备移动端触控操作坞与深浅色主题切换 | ~66 MB ~ 88 MB | Windows<br>macOS / Linux<br>Android / iOS<br>Web 浏览器 |
+
+---
+
 ## 核心特性
 
 ### 1. 原汁原味的 BooguNote 交互 + 现代化增强
@@ -62,15 +73,21 @@
 
 所有平台的独立可运行程序均由 GitHub Actions 云端自动编译打包，可直接前往 **[GitHub Releases 页面](https://github.com/mathlife/BooguNote/releases/latest)** 下载：
 
-| 运行平台 | 安装包 / 文件名 | 说明 |
-| :--- | :--- | :--- |
-| **Windows (轻量单文件版)** | `BooguNote-Windows-Standalone.exe` | 约 886 KB，零外部依赖，双击直接启动独立桌面窗口 |
-| **Windows (绿色便携版)** | `BooguNote-Windows-Portable-x64.exe` | 内置完整 Electron 独立运行环境，免安装双击即用 |
-| **Windows (标准安装版)** | `BooguNote-Windows-Setup-x64.exe` | 标准 Windows 桌面安装程序（支持自定义安装目录） |
-| **macOS (苹果桌面端)** | `BooguNote-macOS-arm64.dmg` | macOS Apple Silicon 独立桌面安装镜像 |
-| **Linux (桌面端)** | `BooguNote-Linux-x86_64.AppImage` | Linux 免安装单文件独立可执行程序 |
-| **Android (安卓移动端)** | `BooguNote-Android.apk` | 安卓手机 / 平板独立安装 APK |
-| **iOS (iPhone / iPad)** | `BooguNote-iOS.ipa` | iOS 独立安装包（支持通过 AltStore / Sideloadly / TrollStore / 爱思助手签名安装） |
+### 🚀 纯原生独立版 (`main` 分支构建 - 零 Chrome / 极致轻量秒开)
+| 运行平台 | 安装包 / 文件名 | 大小 | 说明 |
+| :--- | :--- | :---: | :--- |
+| **Windows x64** | `BooguNote-Native-Windows-x64.zip` | **~10.8 MB** | 绿色免安装，解压双击即用，纯原生机器码渲染，支持贴边自动隐藏 |
+| **macOS (Apple / Intel)** | `BooguNote-Native-macOS.zip` | **~49 MB** | 原生 macOS 独立应用，无任何浏览器引擎包装 |
+
+### 🌐 现代 Web & 移动全平台版 (`web` 分支构建 - 支持移动端与云同步)
+| 运行平台 | 安装包 / 文件名 | 大小 | 说明 |
+| :--- | :--- | :---: | :--- |
+| **Windows 便携版** | `BooguNote-Windows-Portable-x64.exe` | 66.4 MB | 内置 Electron 独立运行环境，免安装双击即用 |
+| **Windows 安装版** | `BooguNote-Windows-Setup-x64.exe` | 66.7 MB | 标准 Windows 安装包（可设置开始菜单与开机自启） |
+| **macOS 镜像** | `BooguNote-macOS-arm64.dmg` | 88.3 MB | macOS 苹果桌面安装镜像 |
+| **Linux 桌面端** | `BooguNote-Linux-x86_64.AppImage` | 75.2 MB | Linux 免安装单文件独立可执行程序 |
+| **Android 移动端** | `BooguNote-Android.apk` | 4.0 MB | 安卓手机/平板原生安装包，内置触控操作坞与云同步 |
+| **iOS (iPhone/iPad)** | `BooguNote-iOS.ipa` | 860 KB | iOS 独立包（支持 AltStore / Sideloadly / TrollStore 签名安装） |
 
 ---
 

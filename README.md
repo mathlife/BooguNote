@@ -29,6 +29,17 @@
 
 ---
 
+## 🌿 Branch Architecture
+
+This repository maintains two distinct technological branches tailored to different use cases:
+
+| Branch | Architecture | Focus & Key Highlights | Bundle Size | Target Platforms |
+| :--- | :--- | :--- | :---: | :--- |
+| **`main`**<br>*(Default / Recommended)* | **Pure Native Outliner Engine**<br>(Flutter / Skia GPU + C++ / Win32) | **Zero Chrome / Zero Web Engine**<br>• Directly compiled to native machine code without any Chromium or Node footprint<br>• Extremely low memory usage (~30MB) and instant cold-start<br>• 100% faithful BooguNote DNA: 3 block width modes, orthogonal branch lines, full-keyboard outliner flow<br>• Desktop edge magnetic snapping, auto-hide to a 4px sensor strip, and mouse hover expand | **~10.8 MB**<br>(Portable zip, run out of the box) | Windows x64<br>macOS (Apple Silicon / Intel) |
+| **`web`** | **Modern Web / Electron Stack**<br>(React + TypeScript + Vite + Electron + Capacitor) | **Omni-Channel Ecosystem & Cloud Sync**<br>• Runs directly in web browsers as a progressive web app (PWA)<br>• Standalone mobile applications for Android APK & iOS IPA<br>• Built-in serverless cloud synchronization (GitHub Private Repo, Dropbox, Gist)<br>• Mobile-optimized touch action dock & multi-theme switching | ~66 MB ~ 88 MB | Windows<br>macOS / Linux<br>Android / iOS<br>Modern Browsers |
+
+---
+
 ## Key Features
 
 ### 1. Classic BooguNote DNA, Modernized
@@ -60,17 +71,23 @@ Built-in zero-backend cloud sync supporting three providers:
 
 ## Downloads
 
-Pre-built standalone installers and portable executables for all platforms are automatically compiled via GitHub Actions and published on the **[Releases Page](https://github.com/mathlife/BooguNote/releases/latest)**:
+Pre-built standalone installers and portable executables are automatically compiled via GitHub Actions and published on the **[Releases Page](https://github.com/mathlife/BooguNote/releases/latest)**:
 
-| Platform | Package / Artifact | Description |
-| :--- | :--- | :--- |
-| **Windows (Lightweight)** | `BooguNote-Windows-Standalone.exe` | ~886 KB zero-dependency single-file executable |
-| **Windows (Portable)** | `BooguNote-Windows-Portable-x64.exe` | Standalone portable Electron executable (no installation required) |
-| **Windows (Installer)** | `BooguNote-Windows-Setup-x64.exe` | Standard Windows desktop installer (NSIS) |
-| **macOS** | `BooguNote-macOS-arm64.dmg` | Native macOS disk image installer |
-| **Linux** | `BooguNote-Linux-x86_64.AppImage` | Standalone Linux AppImage executable |
-| **Android** | `BooguNote-Android.apk` | Standalone Android package for phones & tablets |
-| **iOS** | `BooguNote-iOS.ipa` | Unsigned iOS package (install via AltStore / Sideloadly / TrollStore) |
+### 🚀 Pure Native Standalone Clients (`main` branch - Zero Chrome / Lightweight)
+| Platform | Artifact | Size | Description |
+| :--- | :--- | :---: | :--- |
+| **Windows x64** | `BooguNote-Native-Windows-x64.zip` | **~10.8 MB** | Portable zip, zero installation, pure Skia native machine code with edge snapping & auto-hide |
+| **macOS (Apple / Intel)** | `BooguNote-Native-macOS.zip` | **~49 MB** | Native macOS app bundle, zero Chromium engine footprint |
+
+### 🌐 Modern Web & All-Platform Packages (`web` branch - Mobile & Cloud Sync)
+| Platform | Package / Artifact | Size | Description |
+| :--- | :--- | :---: | :--- |
+| **Windows (Portable)** | `BooguNote-Windows-Portable-x64.exe` | 66.4 MB | Standalone portable Electron executable (no installation required) |
+| **Windows (Installer)** | `BooguNote-Windows-Setup-x64.exe` | 66.7 MB | Standard Windows desktop installer (NSIS) |
+| **macOS** | `BooguNote-macOS-arm64.dmg` | 88.3 MB | macOS Apple Silicon disk image installer |
+| **Linux** | `BooguNote-Linux-x86_64.AppImage` | 75.2 MB | Standalone Linux AppImage executable |
+| **Android** | `BooguNote-Android.apk` | 4.0 MB | Standalone Android package with touch action dock & cloud sync |
+| **iOS** | `BooguNote-iOS.ipa` | 860 KB | iOS package (install via AltStore / Sideloadly / TrollStore) |
 
 ---
 
