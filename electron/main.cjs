@@ -472,6 +472,7 @@ function createMainWindow() {
     minWidth: 260,
     minHeight: 280,
     title: 'BooguNote',
+    icon: path.join(__dirname, '../dist/icon.png'),
     autoHideMenuBar: true,
     backgroundColor: '#f1f5f9',
     webPreferences: {

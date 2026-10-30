@@ -19,6 +19,7 @@
   "build": {
     "appId": "com.boogunote.next",
     "productName": "BooguNote",
+    "icon": "public/icon.png",
     "directories": {
       "output": "release"
     },
@@ -27,6 +28,7 @@
       "electron/**/*"
     ],
     "win": {
+      "icon": "public/icon.ico",
       "target": [
         "portable",
         "nsis"
@@ -39,9 +41,13 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
       "artifactName": "${productName}-Windows-Setup-${arch}.exe"
     },
     "mac": {
+      "icon": "public/icon.png",
       "target": [
         "dmg",
         "zip"
@@ -50,6 +56,7 @@
       "artifactName": "${productName}-macOS-${arch}.${ext}"
     },
     "linux": {
+      "icon": "public/icon.png",
       "target": [
         "AppImage"
       ],

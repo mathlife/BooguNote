@@ -677,14 +677,17 @@ def main():
     cs_file.write_text(cs_code, encoding="utf-8")
 
     csc_path = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+    ico_path = ROOT / "public" / "icon.ico"
     cmd = [
         csc_path,
         "/target:winexe",
         "/optimize+",
         f"/out:{exe_file}",
         "/r:System.dll,System.Drawing.dll,System.Net.dll,System.Windows.Forms.dll",
-        str(cs_file),
     ]
+    if ico_path.exists():
+        cmd.append(f"/win32icon:{ico_path}")
+    cmd.append(str(cs_file))
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         print("编译失败:", res.stdout, res.stderr)
