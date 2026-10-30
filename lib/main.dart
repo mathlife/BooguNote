@@ -9,8 +9,10 @@ import 'parsers/boo_parser.dart';
 import 'parsers/md_parser.dart';
 import 'services/storage_service.dart';
 import 'services/window_service.dart';
-import 'widgets/branch_painter.dart';
+import 'utils/tree_ops.dart';
+import 'utils/sample_docs.dart';
 import 'widgets/node_item_widget.dart';
+import 'widgets/branch_connector.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,9 +63,23 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
     final tabs = await StorageService.loadTabs();
     final savedActiveId = await StorageService.loadActiveTabId();
 
-    String activeId = tabs.first.id;
+    String activeId = tabs.isNotEmpty ? tabs.first.id : '';
     if (savedActiveId != null && tabs.any((t) => t.id == savedActiveId)) {
       activeId = savedActiveId;
+    }
+
+    // 如果是首次使用或空列表，自动提供快速指南文档
+    if (tabs.isEmpty || (tabs.length == 1 && tabs.first.nodes.length == 1 && tabs.first.nodes.first.content.isEmpty)) {
+      final guideNodes = MdParser.parse(SampleDocs.modernGuideMd);
+      final initialTab = DocTab(
+        id: 'tab_guide_${DateTime.now().microsecondsSinceEpoch}',
+        title: '快速指南.md',
+        nodes: guideNodes,
+        focusedId: guideNodes.isNotEmpty ? guideNodes.first.id : null,
+      );
+      tabs.clear();
+      tabs.add(initialTab);
+      activeId = initialTab.id;
     }
 
     setState(() {
@@ -117,10 +133,7 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
   }
 
   void _newTab() {
-    final empty = OutlineNode(
-      id: 'node_${DateTime.now().microsecondsSinceEpoch}',
-      content: '',
-    );
+    final empty = TreeOps.createEmptyNode();
     final newTab = DocTab(
       id: 'tab_${DateTime.now().microsecondsSinceEpoch}',
       title: '未命名笔记_${_tabs.length + 1}.md',
@@ -136,12 +149,8 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
   }
 
   void _closeTab(String tabId) {
-    final tab = _tabs.firstWhere((t) => t.id == tabId);
     if (_tabs.length <= 1) {
-      final empty = OutlineNode(
-        id: 'node_${DateTime.now().microsecondsSinceEpoch}',
-        content: '',
-      );
+      final empty = TreeOps.createEmptyNode();
       final fresh = DocTab(
         id: 'tab_init_${DateTime.now().microsecondsSinceEpoch}',
         title: '未命名笔记.md',
@@ -246,6 +255,232 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
     _showToast('已保存: $fileName');
   }
 
+  // --- 历史撤销与重做管理 ---
+  void _pushUndoSnapshot() {
+    final tab = _activeTab;
+    tab.undoStack.add(TreeOps.cloneTree(tab.nodes));
+    if (tab.undoStack.length > 50) {
+      tab.undoStack.removeAt(0);
+    }
+    tab.redoStack.clear();
+  }
+
+  void _undo() {
+    final tab = _activeTab;
+    if (tab.undoStack.isEmpty) return;
+
+    tab.redoStack.add(TreeOps.cloneTree(tab.nodes));
+    final prev = tab.undoStack.removeLast();
+    setState(() {
+      tab.nodes = prev;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+    _showToast('已撤销');
+  }
+
+  void _redo() {
+    final tab = _activeTab;
+    if (tab.redoStack.isEmpty) return;
+
+    tab.undoStack.add(TreeOps.cloneTree(tab.nodes));
+    final next = tab.redoStack.removeLast();
+    setState(() {
+      tab.nodes = next;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+    _showToast('已重做');
+  }
+
+  // --- 大纲树各种操作交互 ---
+  void _handleInsertSiblingAfter(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    final res = TreeOps.insertSiblingAfter(tab.nodes, id);
+    setState(() {
+      tab.nodes = res['tree'] as List<OutlineNode>;
+      tab.focusedId = res['newNodeId'] as String;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleInsertSiblingBefore(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    final res = TreeOps.insertSiblingBefore(tab.nodes, id);
+    setState(() {
+      tab.nodes = res['tree'] as List<OutlineNode>;
+      tab.focusedId = res['newNodeId'] as String;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleInsertChild(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    final res = TreeOps.insertChild(tab.nodes, id);
+    setState(() {
+      tab.nodes = res['tree'] as List<OutlineNode>;
+      tab.focusedId = res['newNodeId'] as String;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleSplitAtCursor(String id, int offset) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    final res = TreeOps.splitNodeAtCursor(tab.nodes, id, offset);
+    setState(() {
+      tab.nodes = res['tree'] as List<OutlineNode>;
+      tab.focusedId = res['newNodeId'] as String;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleDeleteNode(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    final res = TreeOps.deleteNodes(tab.nodes, {id});
+    setState(() {
+      tab.nodes = res['tree'] as List<OutlineNode>;
+      tab.focusedId = res['nextFocusId'] as String?;
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleMoveUp(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.moveNodeUp(tab.nodes, id);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleMoveDown(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.moveNodeDown(tab.nodes, id);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleIndent(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.indentNode(tab.nodes, id);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleOutdent(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.outdentNode(tab.nodes, id);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleCycleWidth(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.cycleBlockWidth(tab.nodes, id);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleCycleIcon(String id, int dir) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.cycleNodeIcon(tab.nodes, id, dir);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleToggleBold(String id) {
+    _pushUndoSnapshot();
+    final tab = _activeTab;
+    setState(() {
+      tab.nodes = TreeOps.toggleBold(tab.nodes, id);
+      tab.isDirty = true;
+    });
+    StorageService.saveTabs(_tabs);
+  }
+
+  void _handleToggleCollapse(String id) {
+    final tab = _activeTab;
+    final node = TreeOps.findNodeById(tab.nodes, id);
+    if (node != null) {
+      setState(() {
+        node.collapsed = !node.collapsed;
+        tab.isDirty = true;
+      });
+      StorageService.saveTabs(_tabs);
+    }
+  }
+
+  void _handleNavigateVertical(String id, int dir) {
+    final tab = _activeTab;
+    final visible = TreeOps.flattenVisibleNodes(tab.nodes);
+    final idx = visible.indexWhere((item) => item.node.id == id);
+    if (idx != -1) {
+      final targetIdx = (idx + dir).clamp(0, visible.length - 1);
+      setState(() {
+        tab.focusedId = visible[targetIdx].node.id;
+      });
+    }
+  }
+
+  // --- 打开示例内置教程 ---
+  void _openGuideDoc() {
+    final parsed = MdParser.parse(SampleDocs.modernGuideMd);
+    final newTab = DocTab(
+      id: 'tab_guide_${DateTime.now().microsecondsSinceEpoch}',
+      title: '快速指南.md',
+      nodes: parsed,
+      focusedId: parsed.isNotEmpty ? parsed.first.id : null,
+    );
+    setState(() {
+      _tabs.add(newTab);
+      _activeTabId = newTab.id;
+    });
+    StorageService.saveTabs(_tabs);
+    StorageService.saveActiveTabId(newTab.id);
+  }
+
+  void _openTutorialBooDoc() {
+    final parsed = BooParser.parse(SampleDocs.legacyTutorialBooXml);
+    final newTab = DocTab(
+      id: 'tab_legacy_${DateTime.now().microsecondsSinceEpoch}',
+      title: '原版教程.boo',
+      nodes: parsed,
+      focusedId: parsed.isNotEmpty ? parsed.first.id : null,
+    );
+    setState(() {
+      _tabs.add(newTab);
+      _activeTabId = newTab.id;
+    });
+    StorageService.saveTabs(_tabs);
+    StorageService.saveActiveTabId(newTab.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return CallbackShortcuts(
@@ -255,21 +490,26 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _saveCurrentDoc,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true, shift: true): _saveAsCurrentDoc,
         const SingleActivator(LogicalKeyboardKey.keyW, control: true): () => _closeTab(_activeTab.id),
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
+        const SingleActivator(LogicalKeyboardKey.keyY, control: true): _redo,
       },
       child: Focus(
         autofocus: true,
         child: Scaffold(
           body: Column(
             children: [
-              // 1. 顶部标签页与主菜单栏
+              // 1. 顶部标签栏与主菜单
               _buildTopBar(),
 
-              // 2. 核心大纲树内容区
+              // 2. 可选顶部工具栏 (含新建同级、新建子块、升级、降级、移动等常用按钮)
+              if (_config.showToolbar) _buildToolbar(),
+
+              // 3. 核心大纲树内容区
               Expanded(
                 child: _buildOutlineView(),
               ),
 
-              // 3. 底部状态与提示
+              // 4. 底部状态与提示
               if (_config.showStatusBar) _buildStatusBar(),
             ],
           ),
@@ -400,6 +640,22 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
                 case 'saveAs':
                   _saveAsCurrentDoc();
                   break;
+                case 'guide':
+                  _openGuideDoc();
+                  break;
+                case 'tutorial':
+                  _openTutorialBooDoc();
+                  break;
+                case 'expandAll':
+                  setState(() {
+                    _activeTab.nodes = TreeOps.setAllCollapsed(_activeTab.nodes, false);
+                  });
+                  break;
+                case 'collapseAll':
+                  setState(() {
+                    _activeTab.nodes = TreeOps.setAllCollapsed(_activeTab.nodes, true);
+                  });
+                  break;
                 case 'dock':
                   WindowService.toggleDocked();
                   break;
@@ -426,6 +682,12 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               const PopupMenuItem(value: 'save', child: Text('保存文档 (Ctrl+S)')),
               const PopupMenuItem(value: 'saveAs', child: Text('另存文档 (Ctrl+Shift+S)')),
               const PopupMenuDivider(),
+              const PopupMenuItem(value: 'guide', child: Text('📖 打开 快速指南.md')),
+              const PopupMenuItem(value: 'tutorial', child: Text('📖 打开 原版教程.boo')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'expandAll', child: Text('展开所有分支')),
+              const PopupMenuItem(value: 'collapseAll', child: Text('折叠所有分支')),
+              const PopupMenuDivider(),
               const PopupMenuItem(value: 'dock', child: Text('靠边窗口 (Win+O)')),
               PopupMenuItem(
                 value: 'top',
@@ -434,7 +696,7 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'toolbar',
-                child: Text('${_config.showToolbar ? '✓ ' : ''}显示顶部工具栏'),
+                child: Text('${_config.showToolbar ? '✓ ' : ''}显示常用工具栏'),
               ),
               PopupMenuItem(
                 value: 'statusbar',
@@ -443,6 +705,110 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'quit', child: Text('退出')),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 顶部快捷工具栏
+  Widget _buildToolbar() {
+    final curId = _activeTab.focusedId ?? (_activeTab.nodes.isNotEmpty ? _activeTab.nodes.first.id : null);
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.undo, size: 15),
+            tooltip: '撤销 (Ctrl+Z)',
+            onPressed: _undo,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.redo, size: 15),
+            tooltip: '重做 (Ctrl+Y)',
+            onPressed: _redo,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          const VerticalDivider(width: 12, indent: 6, endIndent: 6),
+          IconButton(
+            icon: const Icon(Icons.add_box_outlined, size: 15),
+            tooltip: '在下方新建同级文字块 (Ctrl+Enter)',
+            onPressed: curId != null ? () => _handleInsertSiblingAfter(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.subdirectory_arrow_right, size: 15),
+            tooltip: '新建子文字块 (Shift+Enter)',
+            onPressed: curId != null ? () => _handleInsertChild(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          const VerticalDivider(width: 12, indent: 6, endIndent: 6),
+          IconButton(
+            icon: const Icon(Icons.arrow_back, size: 14),
+            tooltip: '向左升级 (Shift+Tab)',
+            onPressed: curId != null ? () => _handleOutdent(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_forward, size: 14),
+            tooltip: '向右降级 (Tab)',
+            onPressed: curId != null ? () => _handleIndent(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_upward, size: 14),
+            tooltip: '向上移动 (Ctrl+Up)',
+            onPressed: curId != null ? () => _handleMoveUp(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_downward, size: 14),
+            tooltip: '向下移动 (Ctrl+Down)',
+            onPressed: curId != null ? () => _handleMoveDown(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          const VerticalDivider(width: 12, indent: 6, endIndent: 6),
+          IconButton(
+            icon: const Icon(Icons.format_bold, size: 15),
+            tooltip: '粗体 (Ctrl+B)',
+            onPressed: curId != null ? () => _handleToggleBold(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.view_column_outlined, size: 15),
+            tooltip: '切换文字块宽度 (Ctrl+U)',
+            onPressed: curId != null ? () => _handleCycleWidth(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.flag_outlined, size: 15),
+            tooltip: '切换图标 (Ctrl+=)',
+            onPressed: curId != null ? () => _handleCycleIcon(curId, 1) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 15, color: Colors.redAccent),
+            tooltip: '删除文字块 (Ctrl+Delete)',
+            onPressed: curId != null ? () => _handleDeleteNode(curId) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
           ),
         ],
       ),
@@ -461,77 +827,102 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: tab.nodes.map((node) => _buildTreeNode(node, 0)).toList(),
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      itemCount: tab.nodes.length,
+      itemBuilder: (context, idx) {
+        return _buildRecursiveNode(tab.nodes[idx], 0, isLastChild: idx == tab.nodes.length - 1);
+      },
     );
   }
 
-  Widget _buildTreeNode(OutlineNode node, int depth) {
+  /// 递归构建树节点及其子树折线连接器
+  Widget _buildRecursiveNode(OutlineNode node, int depth, {required bool isLastChild}) {
     final isFocused = _activeTab.focusedId == node.id;
     final isSelected = _activeTab.selectedIds.contains(node.id);
+    final hasChildren = node.children.isNotEmpty;
+    final showBranch = hasChildren && !node.collapsed && (node.showBranch || _config.showAllBranches);
 
-    return Padding(
-      padding: EdgeInsets.only(left: depth * _config.indentSize),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          NodeItemWidget(
-            node: node,
-            isFocused: isFocused,
-            isSelected: isSelected,
-            config: _config,
-            onContentChanged: (txt) {
-              setState(() {
-                node.content = txt;
-                _activeTab.isDirty = true;
-              });
-            },
-            onFocus: () {
-              setState(() {
-                _activeTab.focusedId = node.id;
-                _activeTab.selectedIds.clear();
-              });
-            },
-            onSelect: () {
-              setState(() {
-                _activeTab.focusedId = null;
-                _activeTab.selectedIds = [node.id];
-              });
-            },
-            onToggleCollapse: () {
-              setState(() {
-                node.collapsed = !node.collapsed;
-                _activeTab.isDirty = true;
-              });
-            },
-            onCycleWidth: () {
-              setState(() {
-                if (node.blockWidth == BlockWidthMode.narrow) {
-                  node.blockWidth = BlockWidthMode.wide;
-                } else if (node.blockWidth == BlockWidthMode.wide) {
-                  node.blockWidth = BlockWidthMode.shrink;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 1. 当前节点主体
+        NodeItemWidget(
+          node: node,
+          isFocused: isFocused,
+          isSelected: isSelected,
+          config: _config,
+          onContentChanged: (txt) {
+            _pushUndoSnapshot();
+            setState(() {
+              node.content = txt;
+              _activeTab.isDirty = true;
+            });
+          },
+          onFocus: () {
+            setState(() {
+              _activeTab.focusedId = node.id;
+              _activeTab.selectedIds.clear();
+            });
+          },
+          onSelect: () {
+            setState(() {
+              _activeTab.focusedId = null;
+              _activeTab.selectedIds = [node.id];
+            });
+          },
+          onToggleCollapse: () => _handleToggleCollapse(node.id),
+          onCycleWidth: () => _handleCycleWidth(node.id),
+          onCycleIcon: (dir) => _handleCycleIcon(node.id, dir),
+          onToggleBold: () => _handleToggleBold(node.id),
+          onInsertSiblingAfter: () => _handleInsertSiblingAfter(node.id),
+          onInsertSiblingBefore: () => _handleInsertSiblingBefore(node.id),
+          onInsertChild: () => _handleInsertChild(node.id),
+          onSplitAtCursor: (offset) => _handleSplitAtCursor(node.id, offset),
+          onDelete: () => _handleDeleteNode(node.id),
+          onMoveUp: () => _handleMoveUp(node.id),
+          onMoveDown: () => _handleMoveDown(node.id),
+          onIndent: () => _handleIndent(node.id),
+          onOutdent: () => _handleOutdent(node.id),
+          onNavigateVertical: (dir) => _handleNavigateVertical(node.id, dir),
+        ),
+
+        // 2. 带有正交直角折线的子节点列表
+        if (hasChildren && !node.collapsed)
+          Padding(
+            padding: EdgeInsets.only(left: _config.indentSize),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(node.children.length, (idx) {
+                final child = node.children[idx];
+                final isChildLast = idx == node.children.length - 1;
+
+                if (showBranch) {
+                  return IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // 左侧树枝折线连接器
+                        CustomPaint(
+                          size: const Size(18, 0),
+                          painter: BranchConnectorPainter(isLast: isChildLast),
+                        ),
+                        // 右侧子节点内容递归
+                        Expanded(
+                          child: _buildRecursiveNode(child, depth + 1, isLastChild: isChildLast),
+                        ),
+                      ],
+                    ),
+                  );
                 } else {
-                  node.blockWidth = BlockWidthMode.narrow;
+                  return _buildRecursiveNode(child, depth + 1, isLastChild: isChildLast);
                 }
-                _activeTab.isDirty = true;
-              });
-            },
-            onCycleIcon: () {
-              setState(() {
-                final nextIdx = (node.icon.index + 1) % NodeIconType.values.length;
-                node.icon = NodeIconType.values[nextIdx];
-                _activeTab.isDirty = true;
-              });
-            },
-            onInsertSibling: () {},
-            onInsertChild: () {},
-            onDelete: () {},
+              }),
+            ),
           ),
-          if (!node.collapsed && node.children.isNotEmpty)
-            ...node.children.map((child) => _buildTreeNode(child, depth + 1)),
-        ],
-      ),
+      ],
     );
   }
 
@@ -543,7 +934,7 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
       child: Row(
         children: [
           Text(
-            '文件: ${_activeTab.filePath ?? "未保存到磁盘"}',
+            '文件: ${_activeTab.filePath ?? "未命名笔记"}',
             style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
           ),
           const Spacer(),
