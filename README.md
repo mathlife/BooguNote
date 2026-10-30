@@ -18,9 +18,9 @@
 
 ## Overview
 
-**BooguNote** was an iconic, lightweight tree-structured outliner for Windows known for its lightning-fast keyboard navigation, customizable block widths, visual branch connectors, and docked sidebar workflow.
+**[BooguNote](https://github.com/anonymous1999/BooguNote)** ([original upstream `boogunote/bn1`](https://github.com/boogunote/bn1)) was an iconic, lightweight tree-structured outliner for Windows known for its lightning-fast keyboard navigation, customizable block widths, visual branch connectors, and docked sidebar workflow.
 
-**BooguNote Next** reimagines and completely rewrites BooguNote from the ground up using a modern cross-platform architecture:
+**BooguNote Next** reimagines and completely rewrites [BooguNote](https://github.com/anonymous1999/BooguNote) from the ground up using a modern cross-platform architecture:
 - **Closed Card Aesthetics & L-Shaped Branch Lines**: Crisp, closed rounded card blocks with zero-overhang orthogonal `└─` tree branch connectors.
 - **Markdown-First Storage**: Uses standard nested Markdown lists (`.md`) as the primary open format while preserving 100% lossless import/export compatibility with legacy `.boo` (XML) files.
 - **All-Platform Standalone Clients**: Runs natively on **Windows (`.exe`)**, **macOS (`.dmg`)**, **Linux (`.AppImage`)**, **Android (`.apk`)**, and **iOS (`.ipa`)**, complete with a dedicated mobile touch action dock.
@@ -47,7 +47,7 @@
 ### 2. Markdown-First & Legacy `.boo` Compatibility
 - **Standard Markdown (`.md`)**: Notes are saved as clean, human-readable Markdown bullet lists compatible with Obsidian, VS Code, Logseq, and GitHub.
 - **Lossless Metadata Comments**: Extended node properties (icons, colors, block width, branch lines, collapse state) are stored in unobtrusive inline HTML comments `<!-- boo:{"icon":"star","width":"wide"} -->` and can also be exported as pure, comment-free Markdown.
-- **Bidirectional `.boo` Converter**: Open and export legacy BooguNote `.boo` (XML v6/v7) files directly in the app, or batch-convert existing `.boo` directories via the included Python CLI script.
+- **Bidirectional `.boo` Converter**: Open and export legacy [BooguNote](https://github.com/anonymous1999/BooguNote) `.boo` (XML v6/v7) files directly in the app, or batch-convert existing `.boo` directories via the included Python CLI script.
 
 ### 3. Multi-Device Cloud Synchronization
 Built-in zero-backend cloud sync supporting three providers:
@@ -118,6 +118,12 @@ npm run build
 # Convert a single .boo file or an entire directory recursively to .md
 python scripts/convert_boo_to_md.py path/to/notes.boo path/to/output.md
 ```
+
+---
+
+## Credits & Acknowledgments
+
+- Original **[BooguNote](https://github.com/boogunote/bn1)** and **[anonymous1999/BooguNote](https://github.com/anonymous1999/BooguNote)** for the pioneering tree-block outliner design, interaction philosophy, and `.boo` format specification.
 
 ---
 

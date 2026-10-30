@@ -18,9 +18,9 @@
 
 ## 项目简介
 
-**BooguNote** 原版是一款备受推崇的 Windows 轻量级树形大纲笔记软件，以**全键盘极速操作**、**文字块三种宽度自由切换**、**树枝线可视化连接**以及**屏幕右侧停靠窄窗**体验而闻名。
+**[BooguNote](https://github.com/anonymous1999/BooguNote)**（及上游原版仓库 [`boogunote/bn1`](https://github.com/boogunote/bn1)）是一款备受推崇的 Windows 轻量级树形大纲笔记软件，以**全键盘极速操作**、**文字块三种宽度自由切换**、**树枝线可视化连接**以及**屏幕右侧停靠窄窗**体验而闻名。
 
-**BooguNote Next** 使用现代跨平台技术栈对其进行了彻底重构与体验升级：
+**BooguNote Next** 使用现代跨平台技术栈对 [BooguNote](https://github.com/anonymous1999/BooguNote) 进行了彻底重构与体验升级：
 - **闭合卡片节点与精准 L 型闭合树枝线**：每个文字块默认采用四周闭合的圆角卡片设计，父子连接线采用严丝合缝的 `└─` 圆角闭合拐角，消除悬空尾线。
 - **以开放的 Markdown 为核心**：默认使用标准多级无序列表 Markdown (`.md`) 存储，可在 Obsidian、VS Code、Typora 等任意编辑器中直接阅读；同时 **100% 兼容旧版 `.boo` (XML) 文件的导入与导出**。
 - **全平台独立可运行客户端**：通过 GitHub Actions 云端自动构建 **Windows (`.exe`)**、**macOS (`.dmg`)**、**Linux (`.AppImage`)**、**Android (`.apk`)** 与 **iOS (`.ipa`)** 独立安装包，并针对手机/平板设计了专属的**底部触控快捷操作坞**。
@@ -47,7 +47,7 @@
 ### 2. 开放的 Markdown 格式与 `.boo` 无损兼容
 - **标准 Markdown (`.md`)**：笔记保存为标准的多级无序列表语法，直接兼容所有主流 Markdown 工具。
 - **无损扩展属性注释**：节点的图标、颜色、宽度模式、树枝线、折叠状态保存在行尾注释 `<!-- boo:{"icon":"star","width":"wide"} -->` 中；同时支持在源码转换器中一键复制/导出不含注释的“纯净 Markdown”。
-- **`.boo` 双向转换器**：支持直接拖拽或打开原版 `.boo` 文件并另存为 `.md`，项目亦附带 Python 批量转换脚本。
+- **`.boo` 双向转换器**：支持直接拖拽或打开原版 [BooguNote](https://github.com/anonymous1999/BooguNote) `.boo` 文件并另存为 `.md`，项目亦附带 Python 批量转换脚本。
 
 ### 3. 多端云同步中心 (PC / Android / iOS)
 点击顶部工具栏 **「云同步 (GitHub / Dropbox)」** 即可配置：
@@ -121,6 +121,13 @@ python scripts/convert_boo_to_md.py <输入.boo文件或目录> [输出.md文件
 
 ---
 
+## 致谢与原始项目
+
+- 致敬原始项目 **[anonymous1999/BooguNote](https://github.com/anonymous1999/BooguNote)** 与上游仓库 **[boogunote/bn1](https://github.com/boogunote/bn1)** 极具前瞻性的树状文字块交互设计与 `.boo` 数据规范。
+
+---
+
 ## 开源协议
 
 本项目基于 **MIT License** 开源。
+
