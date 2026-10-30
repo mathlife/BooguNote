@@ -1478,3 +1478,33 @@ body,
   gap: 10px;
   font-weight: 700;
 }
+
+/* 顶部/底部快速保存提示 */
+.bn-save-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background-color: rgba(15, 23, 42, 0.92);
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  z-index: 99999;
+  pointer-events: none;
+  animation: bn-toast-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes bn-toast-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

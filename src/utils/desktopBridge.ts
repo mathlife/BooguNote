@@ -11,6 +11,10 @@ declare global {
       onDockStateChanged: (
         callback: (state: WindowDockState) => void
       ) => () => void;
+      showOpenDialog?: (options?: any) => Promise<{ canceled: boolean; filePaths: string[] }>;
+      showSaveDialog?: (options?: any) => Promise<{ canceled: boolean; filePath: string }>;
+      readFile?: (filePath: string) => Promise<string>;
+      writeFile?: (filePath: string, content: string) => Promise<boolean>;
     };
   }
 }

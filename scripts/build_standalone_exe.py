@@ -90,6 +90,9 @@ namespace BooguNoteStandalone
         private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int vKey);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -129,9 +132,46 @@ namespace BooguNoteStandalone
         private static bool wasMouseDown = false;
         private static readonly object stateLock = new object();
 
+        private static Mutex appMutex = null;
+        private static Process browserProcess = null;
+
         [STAThread]
         static void Main()
         {
+            // 单实例锁：禁止同时运行多个实例，已有实例时唤醒并激活已有实例窗口
+            bool isNewInstance;
+            appMutex = new Mutex(true, "BooguNote_Standalone_SingleInstance_Mutex", out isNewInstance);
+            if (!isNewInstance)
+            {
+                try
+                {
+                    string infoPath = Path.Combine(Path.GetTempPath(), "boogunote_standalone_port.txt");
+                    if (File.Exists(infoPath))
+                    {
+                        string portText = File.ReadAllText(infoPath).Trim();
+                        int p;
+                        if (int.TryParse(portText, out p))
+                        {
+                            using (var client = new WebClient())
+                            {
+                                client.DownloadString(string.Format("http://127.0.0.1:{0}/__boogu_win_cmd?action=restore-and-focus", p));
+                            }
+                            return;
+                        }
+                    }
+                }
+                catch { }
+
+                IntPtr existingHwnd = EnsureAppWindowHandle();
+                if (existingHwnd != IntPtr.Zero)
+                {
+                    ShowWindow(existingHwnd, SW_RESTORE);
+                    ShowWindow(existingHwnd, SW_SHOW);
+                    SetForegroundWindow(existingHwnd);
+                }
+                return;
+            }
+
             byte[] htmlBytes = Convert.FromBase64String(EmbeddedHtmlBase64);
             byte[] iconBytes = Convert.FromBase64String(EmbeddedIconSvgBase64);
 
@@ -140,6 +180,9 @@ namespace BooguNoteStandalone
             portFinder.Start();
             int port = ((IPEndPoint)portFinder.LocalEndpoint).Port;
             portFinder.Stop();
+
+            string portFilePath = Path.Combine(Path.GetTempPath(), "boogunote_standalone_port.txt");
+            try { File.WriteAllText(portFilePath, port.ToString()); } catch { }
 
             string url = "http://127.0.0.1:" + port + "/";
 
@@ -213,10 +256,10 @@ namespace BooguNoteStandalone
                     Arguments = string.Format("--app=\"{0}\" --window-size={1},{2} --user-data-dir=\"{3}\"", url, DEFAULT_NARROW_WIDTH, DEFAULT_NARROW_HEIGHT, userDataDir),
                     UseShellExecute = false
                 };
-                Process proc = Process.Start(psi);
-                if (proc != null)
+                browserProcess = Process.Start(psi);
+                if (browserProcess != null)
                 {
-                    proc.WaitForExit();
+                    browserProcess.WaitForExit();
                 }
             }
             else
@@ -225,6 +268,7 @@ namespace BooguNoteStandalone
                 Thread.Sleep(60000);
             }
 
+            try { File.Delete(portFilePath); } catch { }
             try { listener.Stop(); } catch { }
         }
 
@@ -258,7 +302,6 @@ namespace BooguNoteStandalone
             IntPtr found = IntPtr.Zero;
             EnumWindows((hWnd, lParam) =>
             {
-                if (!IsWindowVisible(hWnd)) return true;
                 StringBuilder sb = new StringBuilder(256);
                 GetWindowText(hWnd, sb, 256);
                 string title = sb.ToString();
@@ -340,18 +383,48 @@ namespace BooguNoteStandalone
             {
                 IntPtr hWnd = EnsureAppWindowHandle();
 
+                if (action == "restore-and-focus")
+                {
+                    if (isHiddenByCommand || isCollapsed)
+                    {
+                        isHiddenByCommand = false;
+                        isCollapsed = false;
+                        ShowWindow(hWnd, SW_SHOW);
+                        SetWindowPos(
+                            hWnd,
+                            alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
+                            expandedBounds.Left,
+                            expandedBounds.Top,
+                            expandedBounds.Width,
+                            expandedBounds.Height,
+                            SWP_SHOWWINDOW
+                        );
+                    }
+                    ShowWindow(hWnd, SW_RESTORE);
+                    ShowWindow(hWnd, SW_SHOW);
+                    SetForegroundWindow(hWnd);
+                    return;
+                }
+
                 if (action == "open-default-dir")
                 {
-                    try { Process.Start(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)); } catch { }
+                    try
+                    {
+                        string docPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                        Process.Start(new ProcessStartInfo { FileName = docPath, UseShellExecute = true });
+                    }
+                    catch { }
                     return;
                 }
 
                 if (action == "quit-app")
                 {
+                    try { if (browserProcess != null && !browserProcess.HasExited) browserProcess.Kill(); } catch { }
                     if (hWnd != IntPtr.Zero)
                     {
                         SendMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
                     }
+                    try { File.Delete(Path.Combine(Path.GetTempPath(), "boogunote_standalone_port.txt")); } catch { }
                     Environment.Exit(0);
                     return;
                 }

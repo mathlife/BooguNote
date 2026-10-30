@@ -11,8 +11,10 @@ const {
   Menu,
   shell,
   ipcMain,
+  dialog,
 } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow = null;
 let edgeBarWindow = null;
@@ -20,6 +22,23 @@ let hoverCheckTimer = null;
 let hideDelayTimer = null;
 let isProgrammaticMove = false;
 let lastExpandOrMoveTime = 0;
+
+// 单实例锁：禁止同时运行多个实例，已有实例时激活并聚焦现有窗口
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (dockState.mode === 'auto-hide' && dockState.isCollapsed) {
+        expandAutoHideWindow();
+      }
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
 
 const DEFAULT_NARROW_WIDTH = 400;
 const DEFAULT_NARROW_HEIGHT = 600;
@@ -643,6 +662,34 @@ ipcMain.handle('boogu:set-dock-state', (_event, nextPartial) => {
 
 ipcMain.handle('boogu:get-dock-state', () => {
   return { ...dockState };
+});
+
+// 原生文件打开与保存对话框
+ipcMain.handle('boogu:show-open-dialog', async (_event, options) => {
+  if (!mainWindow) return { canceled: true, filePaths: [] };
+  return await dialog.showOpenDialog(mainWindow, options || {});
+});
+
+ipcMain.handle('boogu:show-save-dialog', async (_event, options) => {
+  if (!mainWindow) return { canceled: true, filePath: '' };
+  return await dialog.showSaveDialog(mainWindow, options || {});
+});
+
+ipcMain.handle('boogu:read-file', async (_event, filePath) => {
+  try {
+    return await fs.promises.readFile(filePath, 'utf-8');
+  } catch (err) {
+    throw new Error(err.message);
+  }
+});
+
+ipcMain.handle('boogu:write-file', async (_event, filePath, content) => {
+  try {
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+    return true;
+  } catch (err) {
+    throw new Error(err.message);
+  }
 });
 
 app.whenReady().then(() => {

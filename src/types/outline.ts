@@ -63,6 +63,7 @@ export interface DocTab {
   id: string;
   title: string;            // 文件名或标题
   filePath?: string;        // 关联文件路径
+  fileHandle?: any;         // 现代浏览器 File System Access API 句柄
   nodes: OutlineNode[];     // 当前节点树
   focusedId: string | null; // 当前处于编辑焦点态的节点 ID
   selectedIds: string[];    // 当前处于被选择态（虚线框）的节点 ID 集合
@@ -80,7 +81,11 @@ export interface WindowDockState {
   edge: WindowDockEdge;
   alwaysOnTop: boolean;
   isCollapsed?: boolean;
-  action?: 'toggle-hide-window' | 'open-default-dir' | 'quit-app';
+  action?:
+    | 'toggle-hide-window'
+    | 'open-default-dir'
+    | 'quit-app'
+    | 'restore-and-focus';
 }
 
 // 全局视图与外观配置

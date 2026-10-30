@@ -22,6 +22,7 @@ import {
   Cloud,
   Square,
   ChevronDown,
+  Check,
 } from 'lucide-react';
 import {
   OutlineNode,
@@ -193,6 +194,14 @@ export const App: React.FC = () => {
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [saveToastMsg, setSaveToastMsg] = useState<string | null>(null);
+
+  // 自动隐藏保存通知轻提示
+  useEffect(() => {
+    if (!saveToastMsg) return;
+    const t = setTimeout(() => setSaveToastMsg(null), 2500);
+    return () => clearTimeout(t);
+  }, [saveToastMsg]);
 
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -284,6 +293,7 @@ export const App: React.FC = () => {
     try {
       const compactTabs = tabs.map((t) => ({
         ...t,
+        fileHandle: undefined,
         undoStack: t.undoStack.slice(-15),
         redoStack: [],
       }));
@@ -751,6 +761,13 @@ export const App: React.FC = () => {
   const handleCloseTabById = useCallback(
     (tabId: string, e?: React.MouseEvent) => {
       if (e) e.stopPropagation();
+      const tabToClose = tabs.find((t) => t.id === tabId);
+      if (tabToClose?.isDirty) {
+        const ok = window.confirm(
+          `文档 "${tabToClose.title}" 存在未保存的修改，确定要关闭吗？\n点击【确定】放弃修改，点击【取消】返回继续编辑。`
+        );
+        if (!ok) return;
+      }
       if (tabs.length <= 1) {
         const empty = createEmptyNode();
         const fallbackTab: DocTab = {
@@ -778,6 +795,13 @@ export const App: React.FC = () => {
 
   // 关闭所有文档
   const handleCloseAllTabs = useCallback(() => {
+    const dirtyTabs = tabs.filter((t) => t.isDirty);
+    if (dirtyTabs.length > 0) {
+      const ok = window.confirm(
+        `有 ${dirtyTabs.length} 个文档存在未保存的修改，确定要全部关闭吗？\n点击【确定】关闭所有文档，点击【取消】返回。`
+      );
+      if (!ok) return;
+    }
     const empty = createEmptyNode();
     const freshTab: DocTab = {
       id: 'tab_' + generateNodeId(),
@@ -791,7 +815,7 @@ export const App: React.FC = () => {
     };
     setTabs([freshTab]);
     setActiveTabId(freshTab.id);
-  }, []);
+  }, [tabs]);
 
   // 切换上个/下个文档标签页
   const handleCycleTab = useCallback(
@@ -804,7 +828,7 @@ export const App: React.FC = () => {
     [tabs, activeTab?.id]
   );
 
-  // 导出下载单个标签页文件
+  // 导出下载单个标签页文件（降级方案）
   const downloadTabAsFile = useCallback(
     (tab: DocTab, format: 'md' | 'boo', customBaseName?: string) => {
       const baseName =
@@ -838,38 +862,330 @@ export const App: React.FC = () => {
     [activeTab, downloadTabAsFile, updateActiveTab]
   );
 
-  // 保存当前文档 (Ctrl+S)
-  const handleSaveCurrentDoc = useCallback(() => {
-    const isBoo = activeTab.title.toLowerCase().endsWith('.boo');
-    handleDownloadFile(isBoo ? 'boo' : 'md');
-  }, [activeTab?.title, handleDownloadFile]);
+  // 打开本地文档（优先 Electron 桌面原生对话框，次选 Chromium File System Access API，降级 HTML File Input）
+  const handleOpenDocNative = useCallback(async () => {
+    // 1. Electron 原生文件选择对话框
+    if (window.booguDesktop?.showOpenDialog && window.booguDesktop?.readFile) {
+      try {
+        const res = await window.booguDesktop.showOpenDialog({
+          title: '打开 BooguNote 或 Markdown 笔记',
+          filters: [
+            {
+              name: '所有支持格式 (*.md, *.boo, *.txt)',
+              extensions: ['md', 'markdown', 'boo', 'txt'],
+            },
+            { name: 'Markdown 笔记 (*.md)', extensions: ['md', 'markdown'] },
+            { name: 'BooguNote 经典大纲 (*.boo)', extensions: ['boo'] },
+            { name: '所有文件 (*.*)', extensions: ['*'] },
+          ],
+          properties: ['openFile', 'multiSelections'],
+        });
 
-  // 另存当前文档 (Ctrl+Shift+S)
-  const handleSaveAsCurrentDoc = useCallback(() => {
-    const nextName = prompt(
-      '另存文档文件名（以 .boo 结尾则导出为原版 XML 格式，否则保存为 .md）：',
-      activeTab.title
-    );
-    if (!nextName || !nextName.trim()) return;
-    const trimmed = nextName.trim();
-    const isBoo = trimmed.toLowerCase().endsWith('.boo');
-    const base = trimmed.replace(/\.(md|markdown|boo|txt)$/i, '');
-    downloadTabAsFile(activeTab, isBoo ? 'boo' : 'md', base);
-    updateActiveTab((tab) => ({
-      ...tab,
-      title: `${base}${isBoo ? '.boo' : '.md'}`,
-      isDirty: false,
-    }));
-  }, [activeTab, downloadTabAsFile, updateActiveTab]);
+        if (res.canceled || !res.filePaths || res.filePaths.length === 0) return;
+
+        const newTabs: DocTab[] = [];
+        for (const filePath of res.filePaths) {
+          const content = await window.booguDesktop.readFile(filePath);
+          const isBoo =
+            filePath.toLowerCase().endsWith('.boo') ||
+            content.trimStart().startsWith('<?xml') ||
+            content.trimStart().startsWith('<root');
+          const parsed = isBoo
+            ? parseBooXml(content)
+            : parseMarkdownToNodes(content);
+          const fileName = filePath.split(/[\\/]/).pop() || filePath;
+          newTabs.push({
+            id: 'tab_' + generateNodeId(),
+            title: fileName,
+            filePath,
+            nodes: parsed,
+            focusedId: parsed[0]?.id ?? null,
+            selectedIds: [],
+            isDirty: false,
+            undoStack: [],
+            redoStack: [],
+          });
+        }
+
+        if (newTabs.length > 0) {
+          setTabs((prev) => [...prev, ...newTabs]);
+          setActiveTabId(newTabs[newTabs.length - 1].id);
+        }
+        return;
+      } catch (err: any) {
+        console.error('Electron showOpenDialog 失败:', err);
+      }
+    }
+
+    // 2. 现代 Chromium / Edge 原生 File System Access API
+    if (typeof (window as any).showOpenFilePicker === 'function') {
+      try {
+        const handles = await (window as any).showOpenFilePicker({
+          multiple: true,
+          types: [
+            {
+              description: 'BooguNote 与 Markdown 笔记',
+              accept: {
+                'text/markdown': ['.md', '.markdown'],
+                'application/xml': ['.boo', '.xml'],
+                'text/plain': ['.txt'],
+              },
+            },
+          ],
+        });
+
+        const newTabs: DocTab[] = [];
+        for (const handle of handles) {
+          const file = await handle.getFile();
+          const text = await file.text();
+          const isBoo =
+            file.name.toLowerCase().endsWith('.boo') ||
+            text.trimStart().startsWith('<?xml') ||
+            text.trimStart().startsWith('<root');
+          const parsed = isBoo ? parseBooXml(text) : parseMarkdownToNodes(text);
+          newTabs.push({
+            id: 'tab_' + generateNodeId(),
+            title: file.name,
+            filePath: file.name,
+            fileHandle: handle,
+            nodes: parsed,
+            focusedId: parsed[0]?.id ?? null,
+            selectedIds: [],
+            isDirty: false,
+            undoStack: [],
+            redoStack: [],
+          });
+        }
+
+        if (newTabs.length > 0) {
+          setTabs((prev) => [...prev, ...newTabs]);
+          setActiveTabId(newTabs[newTabs.length - 1].id);
+        }
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return; // 用户取消选择
+        console.warn('showOpenFilePicker 回退:', err);
+      }
+    }
+
+    // 3. 通用隐藏 file input 降级兜底
+    fileInputRef.current?.click();
+  }, []);
+
+  // 另存文档 (Ctrl+Shift+S)
+  const handleSaveAsCurrentDoc = useCallback(
+    async (targetTab?: DocTab) => {
+      const tabToSave = targetTab || activeTab;
+      const isBoo = tabToSave.title.toLowerCase().endsWith('.boo');
+      const content = isBoo
+        ? exportToBooXml(tabToSave.nodes)
+        : exportToMarkdown(tabToSave.nodes, true);
+
+      // 1. Electron 桌面端原生 SaveDialog
+      if (
+        window.booguDesktop?.showSaveDialog &&
+        window.booguDesktop?.writeFile
+      ) {
+        try {
+          const defaultName = tabToSave.filePath || tabToSave.title;
+          const res = await window.booguDesktop.showSaveDialog({
+            title: '另存文档',
+            defaultPath: defaultName,
+            filters: isBoo
+              ? [
+                  { name: 'BooguNote 经典大纲 (*.boo)', extensions: ['boo'] },
+                  { name: 'Markdown 笔记 (*.md)', extensions: ['md'] },
+                ]
+              : [
+                  { name: 'Markdown 笔记 (*.md)', extensions: ['md'] },
+                  { name: 'BooguNote 经典大纲 (*.boo)', extensions: ['boo'] },
+                ],
+          });
+
+          if (res.canceled || !res.filePath) return false;
+
+          const chosenPath = res.filePath;
+          const targetIsBoo = chosenPath.toLowerCase().endsWith('.boo');
+          const finalContent = targetIsBoo
+            ? exportToBooXml(tabToSave.nodes)
+            : exportToMarkdown(tabToSave.nodes, true);
+
+          await window.booguDesktop.writeFile(chosenPath, finalContent);
+          const fileName = chosenPath.split(/[\\/]/).pop() || chosenPath;
+
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabToSave.id
+                ? {
+                    ...t,
+                    title: fileName,
+                    filePath: chosenPath,
+                    isDirty: false,
+                  }
+                : t
+            )
+          );
+          setSaveToastMsg(`已保存: ${fileName}`);
+          return true;
+        } catch (err: any) {
+          console.error('Electron showSaveDialog 失败:', err);
+        }
+      }
+
+      // 2. 现代 Chromium / Edge File System Access API
+      if (typeof (window as any).showSaveFilePicker === 'function') {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: tabToSave.title,
+            types: isBoo
+              ? [
+                  {
+                    description: 'BooguNote 经典大纲 (*.boo)',
+                    accept: { 'application/xml': ['.boo'] },
+                  },
+                  {
+                    description: 'Markdown 笔记 (*.md)',
+                    accept: { 'text/markdown': ['.md'] },
+                  },
+                ]
+              : [
+                  {
+                    description: 'Markdown 笔记 (*.md)',
+                    accept: { 'text/markdown': ['.md'] },
+                  },
+                  {
+                    description: 'BooguNote 经典大纲 (*.boo)',
+                    accept: { 'application/xml': ['.boo'] },
+                  },
+                ],
+          });
+
+          const file = await handle.getFile();
+          const targetIsBoo = file.name.toLowerCase().endsWith('.boo');
+          const finalContent = targetIsBoo
+            ? exportToBooXml(tabToSave.nodes)
+            : exportToMarkdown(tabToSave.nodes, true);
+
+          const writable = await handle.createWritable();
+          await writable.write(finalContent);
+          await writable.close();
+
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabToSave.id
+                ? {
+                    ...t,
+                    title: file.name,
+                    filePath: file.name,
+                    fileHandle: handle,
+                    isDirty: false,
+                  }
+                : t
+            )
+          );
+          setSaveToastMsg(`已保存: ${file.name}`);
+          return true;
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return false; // 用户取消
+          console.warn('showSaveFilePicker 回退:', err);
+        }
+      }
+
+      // 3. 浏览器降级下载兜底
+      const nextName = prompt(
+        '另存文档文件名（以 .boo 结尾为原版 XML，否则保存为 .md）：',
+        tabToSave.title
+      );
+      if (!nextName || !nextName.trim()) return false;
+      const trimmed = nextName.trim();
+      const targetIsBoo = trimmed.toLowerCase().endsWith('.boo');
+      const base = trimmed.replace(/\.(md|markdown|boo|txt)$/i, '');
+      const finalName = `${base}${targetIsBoo ? '.boo' : '.md'}`;
+      downloadTabAsFile(tabToSave, targetIsBoo ? 'boo' : 'md', base);
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabToSave.id
+            ? {
+                ...t,
+                title: finalName,
+                isDirty: false,
+              }
+            : t
+        )
+      );
+      setSaveToastMsg(`已下载保存: ${finalName}`);
+      return true;
+    },
+    [activeTab, downloadTabAsFile]
+  );
+
+  // 保存当前文档 (Ctrl+S)：优先直接无感写入磁盘或原文件句柄，若为新建文档则调起另存为
+  const handleSaveCurrentDoc = useCallback(
+    async (targetTab?: DocTab) => {
+      const tabToSave = targetTab || activeTab;
+      const isBoo = tabToSave.title.toLowerCase().endsWith('.boo');
+      const content = isBoo
+        ? exportToBooXml(tabToSave.nodes)
+        : exportToMarkdown(tabToSave.nodes, true);
+
+      // A. 若已有本地文件全路径且运行在 Electron 宿主，直接无感静默写入磁盘
+      if (
+        tabToSave.filePath &&
+        window.booguDesktop?.writeFile &&
+        (tabToSave.filePath.includes('/') || tabToSave.filePath.includes('\\'))
+      ) {
+        try {
+          await window.booguDesktop.writeFile(tabToSave.filePath, content);
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabToSave.id ? { ...t, isDirty: false } : t
+            )
+          );
+          setSaveToastMsg(`已保存: ${tabToSave.title}`);
+          return true;
+        } catch (err: any) {
+          console.error('直接写入文件失败，尝试另存为:', err);
+        }
+      }
+
+      // B. 若已有 Chromium File System FileHandle 授权，直接无感写回源文件
+      if (
+        tabToSave.fileHandle &&
+        typeof tabToSave.fileHandle.createWritable === 'function'
+      ) {
+        try {
+          const writable = await tabToSave.fileHandle.createWritable();
+          await writable.write(content);
+          await writable.close();
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabToSave.id ? { ...t, isDirty: false } : t
+            )
+          );
+          setSaveToastMsg(`已保存: ${tabToSave.title}`);
+          return true;
+        } catch (err: any) {
+          console.error('FileHandle 写回失败:', err);
+        }
+      }
+
+      // C. 若尚未关联任何本地实体文件，则调起原生【另存为】对话框
+      return await handleSaveAsCurrentDoc(tabToSave);
+    },
+    [activeTab, handleSaveAsCurrentDoc]
+  );
 
   // 保存所有文档
-  const handleSaveAllDocs = useCallback(() => {
-    tabs.forEach((t) => {
-      const isBoo = t.title.toLowerCase().endsWith('.boo');
-      downloadTabAsFile(t, isBoo ? 'boo' : 'md');
-    });
-    setTabs((prev) => prev.map((t) => ({ ...t, isDirty: false })));
-  }, [tabs, downloadTabAsFile]);
+  const handleSaveAllDocs = useCallback(async () => {
+    let savedCount = 0;
+    for (const t of tabs) {
+      if (t.isDirty) {
+        const ok = await handleSaveCurrentDoc(t);
+        if (ok) savedCount++;
+      }
+    }
+    setSaveToastMsg(`已保存 ${savedCount} 个已修改文档`);
+  }, [tabs, handleSaveCurrentDoc]);
 
   // 全局键盘快捷键监听（含原版主菜单全部快捷键）
   useEffect(() => {
@@ -883,7 +1199,7 @@ export const App: React.FC = () => {
       // Ctrl+O 打开文档
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
         e.preventDefault();
-        fileInputRef.current?.click();
+        handleOpenDocNative();
         return;
       }
       // Ctrl+W 关闭当前文档
@@ -1047,6 +1363,7 @@ export const App: React.FC = () => {
     syncModalOpen,
     searchOpen,
     handleNewTab,
+    handleOpenDocNative,
     handleCloseTabById,
     handleSaveCurrentDoc,
     handleSaveAsCurrentDoc,
@@ -1098,9 +1415,11 @@ export const App: React.FC = () => {
         ? parseBooXml(text)
         : parseMarkdownToNodes(text);
 
+      const filePath = (file as any).path || file.name;
       const newTab: DocTab = {
         id: 'tab_' + generateNodeId(),
         title: file.name,
+        filePath,
         nodes: parsedNodes,
         focusedId: parsedNodes[0]?.id ?? null,
         selectedIds: [],
@@ -1243,10 +1562,10 @@ export const App: React.FC = () => {
                 searchOpen={searchOpen}
                 onClose={() => setMainMenuOpen(false)}
                 onNewDoc={handleNewTab}
-                onOpenDoc={() => fileInputRef.current?.click()}
+                onOpenDoc={handleOpenDocNative}
                 onCloseDoc={() => handleCloseTabById(activeTab.id)}
                 onSaveDoc={handleSaveCurrentDoc}
-                onSaveAsDoc={handleSaveAsCurrentDoc}
+                onSaveAsDoc={() => handleSaveAsCurrentDoc()}
                 onSaveAllDocs={handleSaveAllDocs}
                 onCloseAllDocs={handleCloseAllTabs}
                 onOpenDefaultDir={() =>
@@ -1308,8 +1627,8 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 className="bn-toolbar-btn"
-                title="导入 .md 或旧版 .boo 文件 (Ctrl+O)"
-                onClick={() => fileInputRef.current?.click()}
+                title="打开 .md 或原版 .boo 文件 (Ctrl+O)"
+                onClick={handleOpenDocNative}
               >
                 <FolderOpen size={13} />
                 <span>打开</span>
@@ -1318,21 +1637,21 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 className="bn-toolbar-btn primary"
-                title="保存为标准 Markdown 文件 (.md) (Ctrl+S)"
-                onClick={() => handleDownloadFile('md')}
+                title="保存文档 (Ctrl+S)"
+                onClick={() => handleSaveCurrentDoc()}
               >
                 <Download size={13} />
-                <span>保存 .md</span>
+                <span>保存</span>
               </button>
 
               <button
                 type="button"
                 className="bn-toolbar-btn"
-                title="导出为兼容原版 BooguNote 的 .boo 文件"
-                onClick={() => handleDownloadFile('boo')}
+                title="另存为 (Ctrl+Shift+S)"
+                onClick={() => handleSaveAsCurrentDoc()}
               >
                 <Download size={13} />
-                <span>导出 .boo</span>
+                <span>另存为</span>
               </button>
 
               <button
@@ -1903,6 +2222,14 @@ export const App: React.FC = () => {
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 快捷保存提示气泡 */}
+      {saveToastMsg && (
+        <div className="bn-save-toast">
+          <Check size={14} />
+          <span>{saveToastMsg}</span>
         </div>
       )}
     </div>
