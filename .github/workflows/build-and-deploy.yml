@@ -116,27 +116,37 @@ jobs:
         run: |
           npm run build
           if [ ! -d "ios" ]; then
-            npx cap add ios --packagemanager SPM
+            npx cap add ios
           fi
           npx cap sync ios
 
       - name: 使用 Xcode 编译 iOS 真机 App 并打包为 .ipa
         working-directory: ios/App
         run: |
-          if [ -d "App.xcworkspace" ]; then
-            XCODE_TARGET="-workspace App.xcworkspace"
-          else
-            XCODE_TARGET="-project App.xcodeproj"
+          if [ -f "Podfile" ] && [ ! -d "App.xcworkspace" ]; then
+            pod install
           fi
-          xcodebuild $XCODE_TARGET \
-            -scheme App \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            clean build
+          if [ -d "App.xcworkspace" ]; then
+            xcodebuild -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              clean build
+          else
+            xcodebuild -project App.xcodeproj \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              clean build
+          fi
           mkdir -p Payload
           cp -r build/Build/Products/Release-iphoneos/App.app Payload/
           zip -qry ../../BooguNote-iOS.ipa Payload
