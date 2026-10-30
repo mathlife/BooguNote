@@ -25,8 +25,10 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 启用 Windows 桌面端构建
-        run: flutter config --enable-windows-desktop
+      - name: 启用 Windows 桌面端构建并生成 Runner 原生脚手架
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows .
 
       - name: 获取依赖
         run: flutter pub get
@@ -59,8 +61,10 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 启用 macOS 桌面端构建
-        run: flutter config --enable-macos-desktop
+      - name: 启用 macOS 桌面端构建并生成 Runner 原生脚手架
+        run: |
+          flutter config --enable-macos-desktop
+          flutter create --platforms=macos .
 
       - name: 获取依赖
         run: flutter pub get
