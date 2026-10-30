@@ -9,7 +9,7 @@ class BranchConnectorPainter extends CustomPainter {
   BranchConnectorPainter({
     required this.isLast,
     this.branchColor = const Color(0xFF94A3B8),
-    this.strokeWidth = 1.2,
+    this.strokeWidth = 1.25,
   });
 
   @override
@@ -20,10 +20,10 @@ class BranchConnectorPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.square;
 
-    const double trunkX = 10.0;
-    const double branchY = 16.0;
+    const double trunkX = 8.0;
+    const double branchY = 18.0;
 
-    // 1. 垂直主干线（如果是非末尾子节点，贯穿到底；若是末尾子节点，只垂直下行到折角处停止，绝无多余悬垂尾巴）
+    // 1. 垂直主干线（末尾子节点只垂直画到折角 y=18，非末尾子节点则贯穿到底部与下一子节点相连）
     final double trunkBottom = isLast ? branchY : size.height;
     canvas.drawLine(
       const Offset(trunkX, 0),
@@ -46,4 +46,3 @@ class BranchConnectorPainter extends CustomPainter {
         oldDelegate.strokeWidth != strokeWidth;
   }
 }
-

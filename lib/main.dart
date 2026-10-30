@@ -938,21 +938,26 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
                 final isChildLast = idx == node.children.length - 1;
 
                 if (showBranch) {
-                  return IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // 左侧树枝折线连接器
-                        CustomPaint(
-                          size: const Size(18, 0),
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // 左侧树枝折线连接器：自动根据子树整体实际高度拉伸，不施加任何高度约束
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: isChildLast ? null : 0,
+                        height: isChildLast ? 22.0 : null,
+                        width: 18.0,
+                        child: CustomPaint(
                           painter: BranchConnectorPainter(isLast: isChildLast),
                         ),
-                        // 右侧子节点内容递归
-                        Expanded(
-                          child: _buildRecursiveNode(child, depth + 1, isLastChild: isChildLast),
-                        ),
-                      ],
-                    ),
+                      ),
+                      // 右侧子节点内容递归：完全自然流式排版，由文本内容自然撑满高度，绝无重叠
+                      Padding(
+                        padding: const EdgeInsets.only(left: 18.0),
+                        child: _buildRecursiveNode(child, depth + 1, isLastChild: isChildLast),
+                      ),
+                    ],
                   );
                 } else {
                   return _buildRecursiveNode(child, depth + 1, isLastChild: isChildLast);

@@ -308,7 +308,7 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
       onSecondaryTapDown: (details) => _showContextMenu(context, details.globalPosition),
       child: Container(
         width: blockW,
-        margin: const EdgeInsets.symmetric(vertical: 3.0),
+        margin: const EdgeInsets.symmetric(vertical: 4.0),
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(4.0),
@@ -362,21 +362,24 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
                 ),
               ),
 
-            // 3. 文本输入核心区
+            // 3. 文本内容区（非编辑态时用自然折行的 Text，编辑态时用 TextField，绝无排版重叠）
             Expanded(
-              child: widget.node.blockWidth == BlockWidthMode.shrink && !widget.isFocused
+              child: !widget.isFocused
                   ? GestureDetector(
                       onTap: widget.onFocus,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
                         child: Text(
-                          widget.node.content.replaceAll('\n', ' '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          widget.node.blockWidth == BlockWidthMode.shrink
+                              ? widget.node.content.replaceAll('\n', ' ')
+                              : (widget.node.content.isEmpty ? ' ' : widget.node.content),
+                          maxLines: widget.node.blockWidth == BlockWidthMode.shrink ? 1 : null,
+                          overflow: widget.node.blockWidth == BlockWidthMode.shrink ? TextOverflow.ellipsis : null,
                           style: TextStyle(
                             fontSize: widget.config.fontSize,
                             fontWeight: widget.node.isBold ? FontWeight.bold : FontWeight.normal,
                             color: widget.node.textColor ?? const Color(0xFF1E293B),
+                            height: 1.4,
                           ),
                         ),
                       ),
@@ -391,11 +394,11 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
                           fontSize: widget.config.fontSize,
                           fontWeight: widget.node.isBold ? FontWeight.bold : FontWeight.normal,
                           color: widget.node.textColor ?? const Color(0xFF1E293B),
-                          height: 1.35,
+                          height: 1.4,
                         ),
                         decoration: const InputDecoration(
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                          contentPadding: EdgeInsets.symmetric(vertical: 4, horizontal: 4),
                           border: InputBorder.none,
                           hintText: '输入笔记内容... (Ctrl+Enter 同级, Shift+Enter 子级)',
                           hintStyle: TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
