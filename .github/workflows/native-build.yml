@@ -1,0 +1,80 @@
+name: 编译纯原生跨平台应用 (零Chrome / 零Web引擎)
+
+on:
+  push:
+    branches:
+      - native
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # 1. 编译 Windows 原生无 Chrome 独立可执行程序 (.exe)
+  build-windows-native:
+    name: 编译 Windows 纯原生机器码程序 (x64)
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
+
+      - name: 启用 Windows 桌面端构建
+        run: flutter config --enable-windows-desktop
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 编译原生 Windows 独立可执行发布版
+        run: flutter build windows --release
+
+      - name: 压缩独立绿色免安装发布包
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath BooguNote-Native-Windows-x64.zip
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: boogunote-native-windows
+          path: BooguNote-Native-Windows-x64.zip
+
+  # 2. 编译 macOS 纯原生无 Chrome 独立应用 (.dmg / .app)
+  build-macos-native:
+    name: 编译 macOS 纯原生客户端 (Apple Silicon / Intel)
+    runs-on: macos-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
+
+      - name: 启用 macOS 桌面端构建
+        run: flutter config --enable-macos-desktop
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 编译原生 macOS 发布版
+        run: flutter build macos --release
+
+      - name: 压缩打包 macOS 独立产物
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../../BooguNote-Native-macOS.zip BooguNote.app
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: boogunote-native-macos
+          path: BooguNote-Native-macOS.zip
