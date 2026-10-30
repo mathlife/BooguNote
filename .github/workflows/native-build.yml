@@ -28,7 +28,7 @@ jobs:
       - name: 启用 Windows 桌面端构建并生成 Runner 原生脚手架
         run: |
           flutter config --enable-windows-desktop
-          flutter create --platforms=windows .
+          flutter create --project-name boogunote_native --platforms=windows .
 
       - name: 获取依赖
         run: flutter pub get
@@ -45,6 +45,13 @@ jobs:
         with:
           name: boogunote-native-windows
           path: BooguNote-Native-Windows-x64.zip
+
+      - name: 发布原生 Windows 独立客户端至 GitHub Release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.1.0 BooguNote-Native-Windows-x64.zip --clobber
 
   # 2. 编译 macOS 纯原生无 Chrome 独立应用 (.dmg / .app)
   build-macos-native:
@@ -64,7 +71,7 @@ jobs:
       - name: 启用 macOS 桌面端构建并生成 Runner 原生脚手架
         run: |
           flutter config --enable-macos-desktop
-          flutter create --platforms=macos .
+          flutter create --project-name boogunote_native --platforms=macos .
 
       - name: 获取依赖
         run: flutter pub get
@@ -82,3 +89,10 @@ jobs:
         with:
           name: boogunote-native-macos
           path: BooguNote-Native-macOS.zip
+
+      - name: 发布原生 macOS 客户端至 GitHub Release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.1.0 BooguNote-Native-macOS.zip --clobber
