@@ -1,23 +1,77 @@
 {
   "name": "boogunote-next",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Modern cross-platform rewrite of BooguNote outline notebook with Markdown & .boo support",
+  "description": "BooguNote 现代跨平台独立桌面与移动端重构版 (Windows / macOS / Linux / Android / iOS)",
+  "main": "electron/main.cjs",
+  "author": "mathlife",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dist:win": "npm run build && electron-builder --win portable nsis",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip",
+    "dist:linux": "npm run build && electron-builder --linux AppImage",
+    "cap:android": "npm run build && npx cap sync android"
+  },
+  "build": {
+    "appId": "com.boogunote.next",
+    "productName": "BooguNote",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "artifactName": "${productName}-Windows-${target}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Windows-Portable-${arch}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Windows-Setup-${arch}.exe"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-macOS-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "artifactName": "${productName}-Linux-${arch}.${ext}"
+    }
   },
   "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
     "lucide-react": "^0.468.0",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
     "typescript": "~5.6.2",
     "vite": "^6.0.5"
   }
