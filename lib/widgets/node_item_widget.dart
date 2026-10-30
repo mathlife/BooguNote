@@ -667,10 +667,10 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
         return const Icon(Icons.star, size: 14, color: Color(0xFFF59E0B));
       case NodeIconType.question:
         return const Icon(Icons.help, size: 14, color: Color(0xFF6366F1));
-      case NodeIconType.info:
-        return const Icon(Icons.info, size: 14, color: Color(0xFF0284C7));
-      case NodeIconType.circle:
-        return const Icon(Icons.lens, size: 12, color: Color(0xFF8B5CF6));
+      case NodeIconType.warning:
+        return const Icon(Icons.warning_amber_rounded, size: 14, color: Color(0xFFF97316));
+      case NodeIconType.idea:
+        return const Icon(Icons.lightbulb_outline, size: 14, color: Color(0xFFEAB308));
       case NodeIconType.none:
       default:
         return const SizedBox.shrink();

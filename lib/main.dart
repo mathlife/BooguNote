@@ -852,8 +852,9 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   // 顶部快捷工具栏
   Widget _buildToolbar() {
