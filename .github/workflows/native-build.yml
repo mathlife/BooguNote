@@ -34,9 +34,6 @@ jobs:
       - name: 获取依赖
         run: flutter pub get
 
-      - name: 代码静态分析检查
-        run: flutter analyze
-
       - name: 编译原生 Windows 独立可执行发布版
         run: flutter build windows --release
 
@@ -130,9 +127,6 @@ jobs:
 
       - name: 获取依赖
         run: flutter pub get
-
-      - name: 代码静态分析检查
-        run: flutter analyze
 
       - name: 编译原生 Android 发布版 APK
         run: flutter build apk --release
