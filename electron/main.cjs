@@ -1,7 +1,8 @@
 // Electron 跨平台独立桌面应用主进程 (Windows / macOS / Linux)
-// 1. 默认以经典窄边框模式 (400x680) 启动
-// 2. 窗口拖拽至屏幕任意边缘 (上/左/右) 自动触发靠边自动隐藏，拖离边缘自动恢复正常窗口
-// 3. 完整支持右上角主菜单的【正常窗口 / 靠边窗口 / 自动隐藏窗口 / 隐藏显示 / 置顶 / 打开默认目录 / 退出】
+// 1. 默认以经典窄边框模式启动
+// 2. 拖拽窗口至屏幕上/左/右边缘自动触发靠边自动隐藏（拦截 Windows Aero Snap 避免被系统强行放大）
+// 3. 隐藏时完全收起主窗口并仅在屏幕边缘显示 3px 无边框透明感应细线（彻底消除 136px 蓝色大方框）
+// 4. 鼠标移至屏幕边缘隐藏处立即自动下拉（顶部）或滑出（左/右侧）显示窗口主体
 const {
   app,
   BrowserWindow,
@@ -14,16 +15,17 @@ const {
 const path = require('path');
 
 let mainWindow = null;
+let edgeBarWindow = null;
 let hoverCheckTimer = null;
 let hideDelayTimer = null;
 let isProgrammaticMove = false;
+let lastExpandOrMoveTime = 0;
 
 const DEFAULT_NARROW_WIDTH = 400;
-const DEFAULT_NARROW_HEIGHT = 680;
-const COLLAPSED_THICKNESS = 6; // 自动隐藏收起后保留在屏幕边缘的感应条厚度 (px)
-const SNAP_THRESHOLD = 16;     // 拖拽窗口贴近屏幕边缘自动触发自动隐藏的阈值 (px)
+const DEFAULT_NARROW_HEIGHT = 600;
+const SNAP_THRESHOLD = 28; // 拖拽窗口贴近屏幕边缘自动触发自动隐藏的阈值 (px)
 
-// 记录正常窗口与展开态窗口的真实矩形（保留用户拖拽的位置与宽高）
+// 记录正常窗口与展开态窗口的真实矩形
 let normalBounds = {
   width: DEFAULT_NARROW_WIDTH,
   height: DEFAULT_NARROW_HEIGHT,
@@ -45,22 +47,104 @@ let dockState = {
   isCollapsed: false,   // 当前是否处于已缩回边缘隐藏状态
 };
 
-function getDisplayWorkArea() {
+function getDisplayWorkArea(targetBounds) {
+  if (targetBounds && targetBounds.x !== undefined) {
+    return screen.getDisplayMatching(targetBounds).workArea;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) {
     return screen.getPrimaryDisplay().workArea;
   }
   const winBounds = mainWindow.getBounds();
-  const display = screen.getDisplayMatching(winBounds);
-  return display.workArea;
+  return screen.getDisplayMatching(winBounds).workArea;
 }
 
 function setWindowBoundsSafe(bounds, animate = false) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   isProgrammaticMove = true;
+  lastExpandOrMoveTime = Date.now();
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  }
   mainWindow.setBounds(bounds, animate);
   setTimeout(() => {
     isProgrammaticMove = false;
-  }, 140);
+  }, 220);
+}
+
+// 创建或更新贴在屏幕边缘的 3px 无边框透明指示线窗口（绝不产生 136px 蓝色方框，也不遮挡桌面图标点击）
+function showEdgeIndicatorStrip(edge, expBounds, workArea) {
+  if (!edgeBarWindow || edgeBarWindow.isDestroyed()) {
+    edgeBarWindow = new BrowserWindow({
+      width: 10,
+      height: 10,
+      minWidth: 1,
+      minHeight: 1,
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      focusable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+    edgeBarWindow.setIgnoreMouseEvents(true);
+    const indicatorHtml = `data:text/html;charset=utf-8,${encodeURIComponent(
+      `<!doctype html><html><head><style>
+        html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;}
+        .bar{position:fixed;background:#2563eb;border-radius:2px;box-shadow:0 0 4px rgba(37,99,235,0.7);}
+        body[data-edge="top"] .bar{top:0;left:0;right:0;height:3px;}
+        body[data-edge="left"] .bar{top:0;bottom:0;left:0;width:3px;}
+        body[data-edge="right"] .bar{top:0;bottom:0;right:0;width:3px;}
+      </style></head><body data-edge="right"><div class="bar"></div></body></html>`
+    )}`;
+    edgeBarWindow.loadURL(indicatorHtml);
+  }
+
+  let stripBounds;
+  if (edge === 'top') {
+    stripBounds = {
+      x: expBounds.x,
+      y: workArea.y,
+      width: expBounds.width,
+      height: 6,
+    };
+  } else if (edge === 'left') {
+    stripBounds = {
+      x: workArea.x,
+      y: expBounds.y,
+      width: 6,
+      height: expBounds.height,
+    };
+  } else {
+    stripBounds = {
+      x: workArea.x + workArea.width - 6,
+      y: expBounds.y,
+      width: 6,
+      height: expBounds.height,
+    };
+  }
+
+  edgeBarWindow.webContents
+    .executeJavaScript(`document.body.setAttribute('data-edge', '${edge}');`)
+    .catch(() => {});
+  edgeBarWindow.setBounds(stripBounds, false);
+  edgeBarWindow.setAlwaysOnTop(true, 'screen-saver');
+  edgeBarWindow.showInactive();
+}
+
+function hideEdgeIndicatorStrip() {
+  if (edgeBarWindow && !edgeBarWindow.isDestroyed() && edgeBarWindow.isVisible()) {
+    edgeBarWindow.hide();
+  }
 }
 
 // 根据当前窗口坐标判断距离屏幕哪一侧边缘最近 ('top' | 'left' | 'right')
@@ -76,18 +160,29 @@ function detectNearestEdge(bounds, workArea) {
   return distLeft < distRight ? 'left' : 'right';
 }
 
-// 计算贴边展开态的窗口矩形（保留窗口原有窄框尺寸与沿边缘方向的坐标）
-function calcSnappedExpandedBounds(edge, currentBounds, workArea, fullHeightSidebar = false) {
-  const w = Math.min(
-    Math.max(280, currentBounds.width || DEFAULT_NARROW_WIDTH),
-    workArea.width
-  );
+// 计算贴边展开态的窗口矩形（防止被系统 Aero Snap 放大，保留经典窄框尺寸与边缘对应位置）
+function calcSnappedExpandedBounds(
+  edge,
+  currentBounds,
+  workArea,
+  fullHeightSidebar = false
+) {
+  const maxSafeWidth = Math.round(workArea.width * 0.44);
+  const rawW =
+    currentBounds.width && currentBounds.width < maxSafeWidth
+      ? currentBounds.width
+      : normalBounds.width || DEFAULT_NARROW_WIDTH;
+  const w = Math.min(Math.max(280, rawW), workArea.width);
+
+  const maxSafeHeight = Math.round(workArea.height * 0.85);
+  const rawH =
+    currentBounds.height && currentBounds.height < maxSafeHeight
+      ? currentBounds.height
+      : normalBounds.height ||
+        Math.min(DEFAULT_NARROW_HEIGHT, Math.round(workArea.height * 0.78));
   const h = fullHeightSidebar
     ? workArea.height
-    : Math.min(
-        Math.max(300, currentBounds.height || DEFAULT_NARROW_HEIGHT),
-        workArea.height
-      );
+    : Math.min(Math.max(300, rawH), Math.round(workArea.height * 0.85));
 
   if (edge === 'top') {
     const clampedX = Math.max(
@@ -116,32 +211,6 @@ function calcSnappedExpandedBounds(edge, currentBounds, workArea, fullHeightSide
   };
 }
 
-// 计算自动隐藏收起后的 6px 边缘感应条矩形
-function calcCollapsedStripBounds(edge, expBounds, workArea) {
-  if (edge === 'top') {
-    return {
-      x: expBounds.x,
-      y: workArea.y,
-      width: expBounds.width,
-      height: COLLAPSED_THICKNESS,
-    };
-  }
-  if (edge === 'left') {
-    return {
-      x: workArea.x,
-      y: expBounds.y,
-      width: COLLAPSED_THICKNESS,
-      height: expBounds.height,
-    };
-  }
-  return {
-    x: workArea.x + workArea.width - COLLAPSED_THICKNESS,
-    y: expBounds.y,
-    width: COLLAPSED_THICKNESS,
-    height: expBounds.height,
-  };
-}
-
 function notifyRendererDockState() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('boogu:dock-state-changed', { ...dockState });
@@ -152,20 +221,22 @@ function notifyRendererDockState() {
 function expandAutoHideWindow() {
   if (!mainWindow || mainWindow.isDestroyed() || !dockState.isCollapsed) return;
   dockState.isCollapsed = false;
-  const workArea = getDisplayWorkArea();
+  hideEdgeIndicatorStrip();
+
+  const workArea = getDisplayWorkArea(expandedBounds);
   expandedBounds = calcSnappedExpandedBounds(
     dockState.edge,
     expandedBounds,
     workArea,
     false
   );
-  mainWindow.setMinimumSize(260, 280);
+  setWindowBoundsSafe(expandedBounds, false);
   mainWindow.setAlwaysOnTop(true, 'floating');
-  setWindowBoundsSafe(expandedBounds, true);
+  mainWindow.show();
   notifyRendererDockState();
 }
 
-// 收起窗口到屏幕边缘（鼠标移出窗口后自动隐藏为 6px 细条）
+// 收起窗口到屏幕边缘：完全隐藏主窗口（杜绝 136px 蓝色大方框），仅在边缘留 3px 透明指示线
 function collapseAutoHideWindow() {
   if (
     !mainWindow ||
@@ -175,47 +246,53 @@ function collapseAutoHideWindow() {
   ) {
     return;
   }
-  const workArea = getDisplayWorkArea();
   const current = mainWindow.getBounds();
+  const workArea = getDisplayWorkArea(current);
   expandedBounds = calcSnappedExpandedBounds(
     dockState.edge,
     current,
     workArea,
     false
   );
-  const collapsed = calcCollapsedStripBounds(
-    dockState.edge,
-    expandedBounds,
-    workArea
-  );
 
   dockState.isCollapsed = true;
-  mainWindow.setMinimumSize(4, 4);
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  setWindowBoundsSafe(collapsed, true);
+  showEdgeIndicatorStrip(dockState.edge, expandedBounds, workArea);
+  mainWindow.hide();
   notifyRendererDockState();
 }
 
-// 50ms 全局鼠标位置轮询：鼠标移到边缘隐藏处自动下拉/滑出，移出窗口自动收起
+// 50ms 全局鼠标位置轮询：鼠标移到屏幕边缘隐藏处自动下拉/滑出，移出窗口自动收起隐藏
 function startCursorMonitor() {
   if (hoverCheckTimer) clearInterval(hoverCheckTimer);
 
   hoverCheckTimer = setInterval(() => {
-    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) {
-      return;
-    }
+    if (!mainWindow || mainWindow.isDestroyed()) return;
     if (dockState.mode !== 'auto-hide') return;
 
     const cursor = screen.getCursorScreenPoint();
-    const bounds = mainWindow.getBounds();
+    const workArea = getDisplayWorkArea(expandedBounds);
 
     if (dockState.isCollapsed) {
-      const hitX =
-        cursor.x >= bounds.x - 6 && cursor.x <= bounds.x + bounds.width + 6;
-      const hitY =
-        cursor.y >= bounds.y - 6 && cursor.y <= bounds.y + bounds.height + 6;
+      // 检测鼠标是否移入对应屏幕边缘的唤醒区域（上下/左右放宽 30px 范围，边缘厚度 8px）
+      let hitEdge = false;
+      if (dockState.edge === 'top') {
+        hitEdge =
+          cursor.y <= workArea.y + 8 &&
+          cursor.x >= expandedBounds.x - 30 &&
+          cursor.x <= expandedBounds.x + expandedBounds.width + 30;
+      } else if (dockState.edge === 'left') {
+        hitEdge =
+          cursor.x <= workArea.x + 8 &&
+          cursor.y >= expandedBounds.y - 30 &&
+          cursor.y <= expandedBounds.y + expandedBounds.height + 30;
+      } else {
+        hitEdge =
+          cursor.x >= workArea.x + workArea.width - 8 &&
+          cursor.y >= expandedBounds.y - 30 &&
+          cursor.y <= expandedBounds.y + expandedBounds.height + 30;
+      }
 
-      if (hitX && hitY) {
+      if (hitEdge) {
         if (hideDelayTimer) {
           clearTimeout(hideDelayTimer);
           hideDelayTimer = null;
@@ -223,17 +300,22 @@ function startCursorMonitor() {
         expandAutoHideWindow();
       }
     } else {
+      if (!mainWindow.isVisible()) return;
+      // 刚展开或刚完成拖拽后的 500ms 保护期内不立即收起
+      if (Date.now() - lastExpandOrMoveTime < 500) return;
+
+      const bounds = mainWindow.getBounds();
       const insideX =
-        cursor.x >= bounds.x - 10 && cursor.x <= bounds.x + bounds.width + 10;
+        cursor.x >= bounds.x - 12 && cursor.x <= bounds.x + bounds.width + 12;
       const insideY =
-        cursor.y >= bounds.y - 10 && cursor.y <= bounds.y + bounds.height + 10;
+        cursor.y >= bounds.y - 12 && cursor.y <= bounds.y + bounds.height + 12;
 
       if (!insideX || !insideY) {
         if (!hideDelayTimer) {
           hideDelayTimer = setTimeout(() => {
             hideDelayTimer = null;
             collapseAutoHideWindow();
-          }, 360);
+          }, 350);
         }
       } else if (hideDelayTimer) {
         clearTimeout(hideDelayTimer);
@@ -247,11 +329,9 @@ function startCursorMonitor() {
 function applyDockState(nextPartial) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  // 处理特殊动作指令
   if (nextPartial.action === 'toggle-hide-window') {
     if (dockState.mode === 'auto-hide' && dockState.isCollapsed) {
       expandAutoHideWindow();
-      mainWindow.show();
       mainWindow.focus();
     } else if (mainWindow.isVisible()) {
       mainWindow.hide();
@@ -272,17 +352,26 @@ function applyDockState(nextPartial) {
     return;
   }
 
-  const workArea = getDisplayWorkArea();
-  const curBounds = dockState.isCollapsed ? expandedBounds : mainWindow.getBounds();
+  const curBounds = dockState.isCollapsed
+    ? expandedBounds
+    : mainWindow.getBounds();
+  const workArea = getDisplayWorkArea(curBounds);
 
-  if (dockState.mode === 'normal' && nextPartial.mode && nextPartial.mode !== 'normal') {
-    normalBounds = { ...curBounds };
+  if (
+    dockState.mode === 'normal' &&
+    nextPartial.mode &&
+    nextPartial.mode !== 'normal'
+  ) {
+    if (curBounds.width < workArea.width * 0.45) {
+      normalBounds = { ...curBounds };
+    }
   }
 
   if (hideDelayTimer) {
     clearTimeout(hideDelayTimer);
     hideDelayTimer = null;
   }
+  hideEdgeIndicatorStrip();
 
   const targetMode = nextPartial.mode || dockState.mode;
   const targetEdge =
@@ -304,11 +393,17 @@ function applyDockState(nextPartial) {
     isCollapsed: false,
   };
 
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
   if (dockState.mode === 'normal') {
     mainWindow.setMinimumSize(260, 280);
     mainWindow.setAlwaysOnTop(Boolean(dockState.alwaysOnTop));
     const restoreW = normalBounds.width || DEFAULT_NARROW_WIDTH;
-    const restoreH = normalBounds.height || DEFAULT_NARROW_HEIGHT;
+    const restoreH =
+      normalBounds.height ||
+      Math.min(DEFAULT_NARROW_HEIGHT, Math.round(workArea.height * 0.78));
     const restoreX =
       normalBounds.x !== undefined
         ? Math.max(
@@ -320,7 +415,10 @@ function applyDockState(nextPartial) {
       normalBounds.y !== undefined
         ? Math.max(
             workArea.y + 20,
-            Math.min(normalBounds.y, workArea.y + workArea.height - restoreH - 20)
+            Math.min(
+              normalBounds.y,
+              workArea.y + workArea.height - restoreH - 20
+            )
           )
         : workArea.y + Math.round((workArea.height - restoreH) / 2);
 
@@ -329,15 +427,18 @@ function applyDockState(nextPartial) {
       true
     );
   } else if (dockState.mode === 'docked') {
-    // 靠边窗口模式 (Win+O)：贴合左/右边缘并占满工作区高度
     const sideEdge = dockState.edge === 'left' ? 'left' : 'right';
     dockState.edge = sideEdge;
-    expandedBounds = calcSnappedExpandedBounds(sideEdge, curBounds, workArea, true);
+    expandedBounds = calcSnappedExpandedBounds(
+      sideEdge,
+      curBounds,
+      workArea,
+      true
+    );
     mainWindow.setMinimumSize(260, 280);
     mainWindow.setAlwaysOnTop(true, 'floating');
     setWindowBoundsSafe(expandedBounds, true);
   } else if (dockState.mode === 'auto-hide') {
-    // 自动隐藏窗口模式：贴紧所在屏幕边缘并保留当前窄窗口尺寸与位置
     expandedBounds = calcSnappedExpandedBounds(
       dockState.edge,
       curBounds,
@@ -355,8 +456,10 @@ function applyDockState(nextPartial) {
 function createMainWindow() {
   const workArea = screen.getPrimaryDisplay().workArea;
   const initW = DEFAULT_NARROW_WIDTH;
-  const initH = Math.min(DEFAULT_NARROW_HEIGHT, workArea.height - 60);
-  // 默认以经典窄窗口启动，置于屏幕偏右侧舒适位置
+  const initH = Math.min(
+    DEFAULT_NARROW_HEIGHT,
+    Math.round(workArea.height * 0.78)
+  );
   normalBounds = {
     width: initW,
     height: initH,
@@ -389,9 +492,43 @@ function createMainWindow() {
     return { action: 'allow' };
   });
 
+  // 关键修复：在 Windows 10/11 下，用户把窗口拖到屏幕最顶端松手时，系统 Aero Snap 会触发 maximize。
+  // 这里直接拦截顶边拖拽引发的 maximize，自动转为【顶部边缘自动隐藏】！
+  mainWindow.on('maximize', () => {
+    if (!mainWindow || isProgrammaticMove) return;
+    const cursor = screen.getCursorScreenPoint();
+    const wa = getDisplayWorkArea();
+    if (cursor.y <= wa.y + 36) {
+      isProgrammaticMove = true;
+      mainWindow.unmaximize();
+      const w = normalBounds.width || DEFAULT_NARROW_WIDTH;
+      const h = Math.min(
+        normalBounds.height || DEFAULT_NARROW_HEIGHT,
+        Math.round(wa.height * 0.78)
+      );
+      const x = Math.max(
+        wa.x,
+        Math.min(cursor.x - Math.round(w / 2), wa.x + wa.width - w)
+      );
+      expandedBounds = { x, y: wa.y, width: w, height: h };
+      dockState.mode = 'auto-hide';
+      dockState.edge = 'top';
+      dockState.alwaysOnTop = true;
+      dockState.isCollapsed = false;
+      hideEdgeIndicatorStrip();
+      mainWindow.setAlwaysOnTop(true, 'floating');
+      mainWindow.setBounds(expandedBounds, false);
+      lastExpandOrMoveTime = Date.now();
+      setTimeout(() => {
+        isProgrammaticMove = false;
+      }, 220);
+      notifyRendererDockState();
+    }
+  });
+
   // 监听用户手动拖拽窗口：
-  // 1. 拖到屏幕顶部/左侧/右侧边缘时自动触发【自动隐藏窗口】
-  // 2. 从屏幕边缘拖回屏幕内部时自动恢复【正常窗口】
+  // 1. 拖到屏幕顶部/左侧/右侧边缘时自动触发对应边缘的【自动隐藏窗口】
+  // 2. 从屏幕边缘拖回屏幕中央时自动恢复【正常窗口】
   let moveSnapDebounce = null;
   mainWindow.on('moved', () => {
     if (!mainWindow || dockState.isCollapsed || isProgrammaticMove) return;
@@ -407,42 +544,44 @@ function createMainWindow() {
         return;
       }
       const b = mainWindow.getBounds();
-      const wa = getDisplayWorkArea();
+      const wa = getDisplayWorkArea(b);
+      const cursor = screen.getCursorScreenPoint();
 
-      const nearTop = b.y <= wa.y + SNAP_THRESHOLD;
-      const nearLeft = b.x <= wa.x + SNAP_THRESHOLD;
-      const nearRight = b.x + b.width >= wa.x + wa.width - SNAP_THRESHOLD;
+      const nearLeft =
+        b.x <= wa.x + SNAP_THRESHOLD || cursor.x <= wa.x + 14;
+      const nearRight =
+        b.x + b.width >= wa.x + wa.width - SNAP_THRESHOLD ||
+        cursor.x >= wa.x + wa.width - 14;
+      const nearTop =
+        b.y <= wa.y + SNAP_THRESHOLD || cursor.y <= wa.y + 14;
 
-      if (nearTop && Math.abs(b.height - wa.height) > 30) {
-        if (dockState.mode === 'normal') {
-          normalBounds = { ...b, y: wa.y + 36 };
-        }
-        expandedBounds = calcSnappedExpandedBounds('top', b, wa, false);
+      // 根据窗口与鼠标位置精准判定目标边缘（上 / 左 / 右）
+      let detectedEdge = null;
+      if (
+        nearTop &&
+        cursor.y <= wa.y + 48 &&
+        cursor.x > wa.x + 80 &&
+        cursor.x < wa.x + wa.width - 80
+      ) {
+        detectedEdge = 'top';
+      } else if (nearLeft && (!nearTop || cursor.x <= wa.x + 160)) {
+        detectedEdge = 'left';
+      } else if (
+        nearRight &&
+        (!nearTop || cursor.x >= wa.x + wa.width - 160)
+      ) {
+        detectedEdge = 'right';
+      } else if (nearTop) {
+        detectedEdge = 'top';
+      }
+
+      if (detectedEdge) {
+        expandedBounds = calcSnappedExpandedBounds(detectedEdge, b, wa, false);
         dockState.mode = 'auto-hide';
-        dockState.edge = 'top';
+        dockState.edge = detectedEdge;
         dockState.alwaysOnTop = true;
-        mainWindow.setAlwaysOnTop(true, 'floating');
-        setWindowBoundsSafe(expandedBounds, true);
-        notifyRendererDockState();
-      } else if (nearLeft) {
-        if (dockState.mode === 'normal') {
-          normalBounds = { ...b, x: wa.x + 36 };
-        }
-        expandedBounds = calcSnappedExpandedBounds('left', b, wa, false);
-        dockState.mode = 'auto-hide';
-        dockState.edge = 'left';
-        dockState.alwaysOnTop = true;
-        mainWindow.setAlwaysOnTop(true, 'floating');
-        setWindowBoundsSafe(expandedBounds, true);
-        notifyRendererDockState();
-      } else if (nearRight) {
-        if (dockState.mode === 'normal') {
-          normalBounds = { ...b, x: wa.x + wa.width - b.width - 36 };
-        }
-        expandedBounds = calcSnappedExpandedBounds('right', b, wa, false);
-        dockState.mode = 'auto-hide';
-        dockState.edge = 'right';
-        dockState.alwaysOnTop = true;
+        dockState.isCollapsed = false;
+        hideEdgeIndicatorStrip();
         mainWindow.setAlwaysOnTop(true, 'floating');
         setWindowBoundsSafe(expandedBounds, true);
         notifyRendererDockState();
@@ -450,21 +589,30 @@ function createMainWindow() {
         // 用户将窗口从边缘拖回屏幕中央：自动解除自动隐藏，恢复为自由移动的正常窄窗口
         dockState.mode = 'normal';
         dockState.isCollapsed = false;
-        normalBounds = { ...b };
+        hideEdgeIndicatorStrip();
+        if (b.width < wa.width * 0.45 && b.height < wa.height * 0.9) {
+          normalBounds = { ...b };
+        }
         notifyRendererDockState();
       } else {
-        normalBounds = { ...b };
+        if (b.width < wa.width * 0.45 && b.height < wa.height * 0.9) {
+          normalBounds = { ...b };
+        }
       }
-    }, 160);
+    }, 200);
   });
 
   mainWindow.on('resized', () => {
     if (!mainWindow || dockState.isCollapsed || isProgrammaticMove) return;
+    if (mainWindow.isMaximized()) return;
     const b = mainWindow.getBounds();
-    if (dockState.mode === 'normal') {
-      normalBounds = { ...b };
-    } else {
-      expandedBounds = { ...b };
+    const wa = getDisplayWorkArea(b);
+    if (b.width < wa.width * 0.45 && b.height < wa.height * 0.9) {
+      if (dockState.mode === 'normal') {
+        normalBounds = { ...b };
+      } else {
+        expandedBounds = { ...b };
+      }
     }
   });
 
@@ -478,6 +626,11 @@ function createMainWindow() {
   startCursorMonitor();
 
   mainWindow.on('closed', () => {
+    hideEdgeIndicatorStrip();
+    if (edgeBarWindow && !edgeBarWindow.isDestroyed()) {
+      edgeBarWindow.close();
+    }
+    edgeBarWindow = null;
     mainWindow = null;
   });
 }
@@ -495,13 +648,12 @@ ipcMain.handle('boogu:get-dock-state', () => {
 app.whenReady().then(() => {
   createMainWindow();
 
-  // 注册全局快捷键（兼容原版 Win+O / Shift+Win+O / Win+H 及跨平台 Alt 组合键）
   const tryRegister = (accels, handler) => {
     for (const acc of accels) {
       try {
         if (globalShortcut.register(acc, handler)) break;
       } catch {
-        // 某些系统保留键跳过并回退备用快捷键
+        // 忽略系统保留键冲突
       }
     }
   };
@@ -544,6 +696,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   if (hoverCheckTimer) clearInterval(hoverCheckTimer);
+  hideEdgeIndicatorStrip();
   globalShortcut.unregisterAll();
 });
 

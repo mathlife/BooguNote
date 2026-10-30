@@ -151,9 +151,6 @@ export const App: React.FC = () => {
     return DEFAULT_CONFIG;
   });
 
-  // 当前窗口是否正处于靠边自动隐藏的收起感应条状态
-  const [isCollapsedEdge, setIsCollapsedEdge] = useState(false);
-
   // 右上角主菜单下拉状态与辅助弹窗状态
   const [mainMenuOpen, setMainMenuOpen] = useState(false);
   const [docListModalOpen, setDocListModalOpen] = useState(false);
@@ -210,7 +207,6 @@ export const App: React.FC = () => {
   // 订阅原生桌面窗口因拖拽到屏幕边缘或快捷键引发的停靠与置顶状态变更
   useEffect(() => {
     const unsubscribe = subscribeNativeDockState((nativeState) => {
-      setIsCollapsedEdge(Boolean(nativeState.isCollapsed));
       setConfig((prev) => {
         const nextTop =
           nativeState.alwaysOnTop !== undefined
@@ -1140,16 +1136,6 @@ export const App: React.FC = () => {
   const hasActiveTarget = Boolean(
     activeTab.focusedId || activeTab.selectedIds.length > 0
   );
-
-  // 当窗口处于靠边自动吸附收起（6px 边缘感应条）状态时，显示高对比度感应条
-  if (isCollapsedEdge) {
-    return (
-      <div
-        className={`bn-edge-sensor-strip edge-${config.dockEdge}`}
-        title="BooguNote 靠边自动隐藏中 - 鼠标移入自动下拉/滑出显示窗口主体"
-      />
-    );
-  }
 
   return (
     <div
