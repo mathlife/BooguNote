@@ -348,3 +348,4 @@ class CloudSyncService {
     return lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.boo');
   }
 }
+

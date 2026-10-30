@@ -97,3 +97,53 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload v1.1.0 BooguNote-Native-macOS.zip --clobber
+
+  # 3. 编译 Android 纯原生独立安装包 (.apk) - 零Chrome/零Webview
+  build-android-native:
+    name: 编译 Android 纯原生极速 APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17 环境
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 配置 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
+
+      - name: 生成 Android 原生工程脚手架并添加网络权限
+        run: |
+          flutter create --project-name boogunote_native --platforms=android .
+          # 注入网络权限以支持 WebDAV 和 GitHub 云同步
+          sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">\n    <uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"\/>/' android/app/src/main/AndroidManifest.xml
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 编译原生 Android 发布版 APK
+        run: flutter build apk --release
+
+      - name: 归档 Android APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk BooguNote-Native-Android.apk
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: boogunote-native-android
+          path: BooguNote-Native-Android.apk
+
+      - name: 发布 Android 原生 APK 至 GitHub Release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.1.0 BooguNote-Native-Android.apk --clobber

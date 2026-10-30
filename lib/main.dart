@@ -14,6 +14,7 @@ import 'utils/sample_docs.dart';
 import 'widgets/node_item_widget.dart';
 import 'widgets/branch_connector.dart';
 import 'widgets/cloud_sync_dialog.dart';
+import 'widgets/mobile_accessory_bar.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -97,6 +98,15 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
       (t) => t.id == _activeTabId,
       orElse: () => _tabs.first,
     );
+  }
+
+  bool get _isMobile {
+    if (Platform.isAndroid || Platform.isIOS) return true;
+    try {
+      return MediaQuery.of(context).size.width < 600;
+    } catch (_) {
+      return false;
+    }
   }
 
   void _showToast(String msg) {
@@ -535,18 +545,19 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
                   // 1. 顶部标签栏与主菜单
                   _buildTopBar(),
 
-                  // 2. 可选顶部工具栏 (含新建同级、新建子块、升级、降级、移动等常用按钮)
-                  if (_config.showToolbar) _buildToolbar(),
+                  // 2. 桌面端可选快捷工具栏
+                  if (_config.showToolbar && !_isMobile) _buildToolbar(),
 
                   // 3. 核心大纲树内容区
                   Expanded(
                     child: _buildOutlineView(),
                   ),
 
-                  // 4. 底部状态与提示
-                  if (_config.showStatusBar) _buildStatusBar(),
+                  // 4. 桌面端可选底部状态与提示
+                  if (_config.showStatusBar && !_isMobile) _buildStatusBar(),
                 ],
               ),
+              bottomNavigationBar: _isMobile ? _buildMobileAccessoryBar() : null,
               floatingActionButton: _saveToastMsg != null
                   ? Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -575,15 +586,63 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
     );
   }
 
-  Widget _buildTopBar() {
-    return Container(
-      height: 38,
-      decoration: const BoxDecoration(
-        color: Color(0xFFF1F5F9),
-        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+  /// 移动端/触屏专属键盘辅助操作栏
+  Widget _buildMobileAccessoryBar() {
+    final curId = _activeTab.focusedId ?? (_activeTab.nodes.isNotEmpty ? _activeTab.nodes.first.id : null);
+    final hasNode = curId != null;
+
+    return SafeArea(
+      top: false,
+      child: MobileAccessoryBar(
+        hasActiveNode: hasNode,
+        onInsertSiblingAfter: () {
+          if (curId != null) _handleInsertSiblingAfter(curId);
+        },
+        onInsertChild: () {
+          if (curId != null) _handleInsertChild(curId);
+        },
+        onIndent: () {
+          if (curId != null) _handleIndent(curId);
+        },
+        onOutdent: () {
+          if (curId != null) _handleOutdent(curId);
+        },
+        onMoveUp: () {
+          if (curId != null) _handleMoveUp(curId);
+        },
+        onMoveDown: () {
+          if (curId != null) _handleMoveDown(curId);
+        },
+        onToggleBold: () {
+          if (curId != null) _handleToggleBold(curId);
+        },
+        onCycleWidth: () {
+          if (curId != null) _handleCycleWidth(curId);
+        },
+        onCycleIcon: () {
+          if (curId != null) _handleCycleIcon(curId, 1);
+        },
+        onDelete: () {
+          if (curId != null) _handleDeleteNode(curId);
+        },
+        onDismissKeyboard: () {
+          FocusScope.of(context).unfocus();
+        },
       ),
-      child: Row(
-        children: [
+    );
+  }
+
+  Widget _buildTopBar() {
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        height: _isMobile ? 42 : 38,
+        decoration: const BoxDecoration(
+          color: Color(0xFFF1F5F9),
+          border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
+        child: Row(
+          children: [
           // Logo 标
           Container(
             width: 24,
@@ -758,28 +817,31 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'expandAll', child: Text('展开所有分支')),
               const PopupMenuItem(value: 'collapseAll', child: Text('折叠所有分支')),
+              if (!_isMobile) ...[
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'dock',
+                  child: Text('${WindowService.dockMode == WindowDockMode.docked ? '✓ ' : ''}靠边停靠模式 (Win+O)'),
+                ),
+                PopupMenuItem(
+                  value: 'autoHide',
+                  child: Text('${WindowService.dockMode == WindowDockMode.autoHide ? '✓ ' : ''}靠边自动隐藏 (Shift+Win+O)'),
+                ),
+                const PopupMenuItem(value: 'dockRight', child: Text('  ↳ 贴靠右侧边缘 (自动隐藏)')),
+                const PopupMenuItem(value: 'dockLeft', child: Text('  ↳ 贴靠左侧边缘 (自动隐藏)')),
+                const PopupMenuItem(value: 'dockTop', child: Text('  ↳ 贴靠顶部边缘 (自动隐藏)')),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'top',
+                  child: Text('${_config.alwaysOnTop ? '✓ ' : ''}设置/取消 窗口置顶'),
+                ),
+              ],
               const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'dock',
-                child: Text('${WindowService.dockMode == WindowDockMode.docked ? '✓ ' : ''}靠边停靠模式 (Win+O)'),
-              ),
-              PopupMenuItem(
-                value: 'autoHide',
-                child: Text('${WindowService.dockMode == WindowDockMode.autoHide ? '✓ ' : ''}靠边自动隐藏 (Shift+Win+O)'),
-              ),
-              const PopupMenuItem(value: 'dockRight', child: Text('  ↳ 贴靠右侧边缘 (自动隐藏)')),
-              const PopupMenuItem(value: 'dockLeft', child: Text('  ↳ 贴靠左侧边缘 (自动隐藏)')),
-              const PopupMenuItem(value: 'dockTop', child: Text('  ↳ 贴靠顶部边缘 (自动隐藏)')),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'top',
-                child: Text('${_config.alwaysOnTop ? '✓ ' : ''}设置/取消 窗口置顶'),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'toolbar',
-                child: Text('${_config.showToolbar ? '✓ ' : ''}显示常用工具栏'),
-              ),
+              if (!_isMobile)
+                PopupMenuItem(
+                  value: 'toolbar',
+                  child: Text('${_config.showToolbar ? '✓ ' : ''}显示常用工具栏'),
+                ),
               PopupMenuItem(
                 value: 'statusbar',
                 child: Text('${_config.showStatusBar ? '✓ ' : ''}显示底部状态栏'),
@@ -920,12 +982,19 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      itemCount: tab.nodes.length,
-      itemBuilder: (context, idx) {
-        return _buildRecursiveNode(tab.nodes[idx], 0, isLastChild: idx == tab.nodes.length - 1);
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () {
+        // 点击空白区域自动收起键盘
+        FocusScope.of(context).unfocus();
       },
+      child: ListView.builder(
+        padding: EdgeInsets.symmetric(horizontal: _isMobile ? 10 : 14, vertical: 12),
+        itemCount: tab.nodes.length,
+        itemBuilder: (context, idx) {
+          return _buildRecursiveNode(tab.nodes[idx], 0, isLastChild: idx == tab.nodes.length - 1);
+        },
+      ),
     );
   }
 

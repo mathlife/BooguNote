@@ -78,6 +78,7 @@ Pre-built standalone installers and portable executables are automatically compi
 | :--- | :--- | :---: | :--- |
 | **Windows x64** | `BooguNote-Native-Windows-x64.zip` | **~10.8 MB** | Portable zip, zero installation, pure Skia native machine code with edge snapping & auto-hide |
 | **macOS (Apple / Intel)** | `BooguNote-Native-macOS.zip` | **~49 MB** | Native macOS app bundle, zero Chromium engine footprint |
+| **Android (Phone / Tablet)** | `BooguNote-Native-Android.apk` | **~15 MB** | Pure native Android APK, keyboard accessory bar, swipe-to-indent gestures, long-press action sheet |
 
 ### 🌐 Modern Web & All-Platform Packages (`web` branch - Mobile & Cloud Sync)
 | Platform | Package / Artifact | Size | Description |
@@ -113,7 +114,11 @@ Pre-built standalone installers and portable executables are automatically compi
 | `Alt + Left Click` | Select a block together with its entire subtree |
 | `Esc` | Exit editing focus into block selection mode / Clear selection |
 
-> **On Android & iOS**: When any block is focused or selected, a dedicated **Mobile Action Dock** appears at the bottom of the screen for one-tap sibling/child creation, indentation, movement, width/icon switching, and deletion.
+> **📱 Android & iOS Touchscreen Guide**:
+> 1. **Keyboard Accessory Bar**: When the soft keyboard pops up or any node is focused/selected, a thumb-friendly toolbar stays pinned at the bottom/above the keyboard: `➕Sibling`, `↳Child`, `⇥Indent`, `⇤Outdent`, `↑Move Up`, `↓Move Down`, `BBold`, `WWidth`, `🚩Icon`, `🗑️Delete`, `⌨️Dismiss Keyboard`.
+> 2. **Swipe Gestures**: Swipe right on any card to automatically **Indent (Tab)**; swipe left to **Outdent (Shift+Tab)** with haptic feedback.
+> 3. **Long Press Action Sheet**: Long press any card to bring up a spacious bottom action sheet for one-tap reorganizing.
+> 4. **Touch-friendly Fold Buttons**: Node toggle handles now have a spacious 32×32px hit-box to prevent missed taps.
 
 ---
 

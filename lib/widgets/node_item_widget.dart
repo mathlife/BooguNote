@@ -1,9 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/outline_node.dart';
 import '../models/app_config.dart';
 
-/// 单个文字块自绘组件（完整全键盘交互、右键菜单、三态三宽模式与角标）
+/// 单个文字块自绘组件（全键盘交互、移动端触屏手势、长按抽屉、三态三宽模式与角标）
 class NodeItemWidget extends StatefulWidget {
   final OutlineNode node;
   final bool isFocused;
@@ -218,6 +219,7 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
     return KeyEventResult.ignored;
   }
 
+  /// 桌面端鼠标右键菜单
   void _showContextMenu(BuildContext context, Offset globalPos) {
     showMenu<String>(
       context: context,
@@ -244,40 +246,226 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
         ),
       ],
     ).then((val) {
-      if (val == null) return;
-      switch (val) {
-        case 'child':
-          widget.onInsertChild();
-          break;
-        case 'sibling':
-          widget.onInsertSiblingAfter();
-          break;
-        case 'width':
-          widget.onCycleWidth();
-          break;
-        case 'bold':
-          widget.onToggleBold();
-          break;
-        case 'icon':
-          widget.onCycleIcon(1);
-          break;
-        case 'indent':
-          widget.onIndent();
-          break;
-        case 'outdent':
-          widget.onOutdent();
-          break;
-        case 'moveUp':
-          widget.onMoveUp();
-          break;
-        case 'moveDown':
-          widget.onMoveDown();
-          break;
-        case 'delete':
-          widget.onDelete();
-          break;
-      }
+      if (val != null) _dispatchAction(val);
     });
+  }
+
+  /// 移动端专属触屏长按操作面板 (Bottom Sheet)
+  void _showMobileActionSheet(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    widget.onFocus();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final title = widget.node.content.trim().isEmpty
+            ? '空白文字块'
+            : (widget.node.content.length > 20
+                ? '${widget.node.content.substring(0, 20)}...'
+                : widget.node.content);
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E293B),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _buildSheetBtn(
+                      icon: Icons.add_circle_outline,
+                      label: '新建同级',
+                      color: const Color(0xFF2563EB),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onInsertSiblingAfter();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.subdirectory_arrow_right,
+                      label: '新建子级',
+                      color: const Color(0xFF2563EB),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onInsertChild();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.format_indent_increase,
+                      label: '向右降级',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onIndent();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.format_indent_decrease,
+                      label: '向左升级',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onOutdent();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.arrow_upward,
+                      label: '向上移动',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onMoveUp();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.arrow_downward,
+                      label: '向下移动',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onMoveDown();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.format_bold,
+                      label: '粗体切换',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onToggleBold();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.view_column_outlined,
+                      label: '宽度切换',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onCycleWidth();
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.flag_outlined,
+                      label: '循环图标',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onCycleIcon(1);
+                      },
+                    ),
+                    _buildSheetBtn(
+                      icon: Icons.delete_outline,
+                      label: '删除文字块',
+                      color: const Color(0xFFEF4444),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onDelete();
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSheetBtn({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 76,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 22, color: color ?? const Color(0xFF334155)),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: color ?? const Color(0xFF475569),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _dispatchAction(String val) {
+    switch (val) {
+      case 'child':
+        widget.onInsertChild();
+        break;
+      case 'sibling':
+        widget.onInsertSiblingAfter();
+        break;
+      case 'width':
+        widget.onCycleWidth();
+        break;
+      case 'bold':
+        widget.onToggleBold();
+        break;
+      case 'icon':
+        widget.onCycleIcon(1);
+        break;
+      case 'indent':
+        widget.onIndent();
+        break;
+      case 'outdent':
+        widget.onOutdent();
+        break;
+      case 'moveUp':
+        widget.onMoveUp();
+        break;
+      case 'moveDown':
+        widget.onMoveDown();
+        break;
+      case 'delete':
+        widget.onDelete();
+        break;
+    }
   }
 
   @override
@@ -305,13 +493,31 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
     }
 
     return GestureDetector(
+      // 桌面端鼠标右键菜单
       onSecondaryTapDown: (details) => _showContextMenu(context, details.globalPosition),
+      // 触屏移动端长按呼出大底栏抽屉
+      onLongPress: () => _showMobileActionSheet(context),
+      // 触屏轻扫手势：向右轻扫降级，向左轻扫升级
+      onHorizontalDragEnd: !widget.isFocused
+          ? (details) {
+              final vx = details.primaryVelocity ?? 0;
+              if (vx > 250) {
+                // 向右滑 -> 降级
+                HapticFeedback.lightImpact();
+                widget.onIndent();
+              } else if (vx < -250) {
+                // 向左滑 -> 升级
+                HapticFeedback.lightImpact();
+                widget.onOutdent();
+              }
+            }
+          : null,
       child: Container(
         width: blockW,
         margin: const EdgeInsets.symmetric(vertical: 4.0),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(4.0),
+          borderRadius: BorderRadius.circular(6.0),
           border: Border.all(color: borderColor, width: borderWidth),
           boxShadow: widget.isFocused || widget.isSelected
               ? [
@@ -326,26 +532,30 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. 折叠/展开小方块 [+] / [-]
+            // 1. 折叠/展开小方块 [+] / [-]（拥有 32x32 大触控面积，防误触）
             GestureDetector(
-              onTap: widget.onToggleCollapse,
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                widget.onToggleCollapse();
+              },
               child: Container(
-                width: 20,
-                height: 26,
+                width: 30,
+                height: 32,
                 alignment: Alignment.center,
                 child: hasChildren
                     ? Container(
-                        width: 12,
-                        height: 12,
+                        width: 13,
+                        height: 13,
                         decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xFF94A3B8)),
-                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(color: const Color(0xFF94A3B8), width: 1.2),
+                          borderRadius: BorderRadius.circular(2.5),
                           color: Colors.white,
                         ),
                         child: Icon(
                           widget.node.collapsed ? Icons.add : Icons.remove,
-                          size: 10,
-                          color: const Color(0xFF475569),
+                          size: 11,
+                          color: const Color(0xFF334155),
                         ),
                       )
                     : const SizedBox.shrink(),
@@ -355,9 +565,12 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
             // 2. 7 种经典矢量图标指示器
             if (widget.node.icon != NodeIconType.none)
               GestureDetector(
-                onTap: () => widget.onCycleIcon(1),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onCycleIcon(1);
+                },
                 child: Container(
-                  padding: const EdgeInsets.only(top: 5, right: 4),
+                  padding: const EdgeInsets.only(top: 8, right: 4),
                   child: _buildVectorIcon(widget.node.icon),
                 ),
               ),
@@ -366,9 +579,10 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
             Expanded(
               child: !widget.isFocused
                   ? GestureDetector(
+                      behavior: HitTestBehavior.opaque,
                       onTap: widget.onFocus,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
                         child: Text(
                           widget.node.blockWidth == BlockWidthMode.shrink
                               ? widget.node.content.replaceAll('\n', ' ')
@@ -396,12 +610,14 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
                           color: widget.node.textColor ?? const Color(0xFF1E293B),
                           height: 1.4,
                         ),
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
                           border: InputBorder.none,
-                          hintText: '输入笔记内容... (Ctrl+Enter 同级, Shift+Enter 子级)',
-                          hintStyle: TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
+                          hintText: Platform.isAndroid || Platform.isIOS
+                              ? '输入笔记内容... (下方工具条可快速组织)'
+                              : '输入笔记内容... (Ctrl+Enter 同级, Shift+Enter 子级)',
+                          hintStyle: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12),
                         ),
                         onChanged: widget.onContentChanged,
                         onTap: widget.onFocus,
@@ -412,10 +628,13 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
             // 4. 折叠时显示的子节点数量小角标
             if (hasChildren && widget.node.collapsed)
               GestureDetector(
-                onTap: widget.onToggleCollapse,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onToggleCollapse();
+                },
                 child: Container(
-                  margin: const EdgeInsets.only(top: 4, right: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  margin: const EdgeInsets.only(top: 6, right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: const Color(0xFFE2E8F0),
                     borderRadius: BorderRadius.circular(10),
@@ -448,10 +667,10 @@ class _NodeItemWidgetState extends State<NodeItemWidget> {
         return const Icon(Icons.star, size: 14, color: Color(0xFFF59E0B));
       case NodeIconType.question:
         return const Icon(Icons.help, size: 14, color: Color(0xFF6366F1));
-      case NodeIconType.warning:
-        return const Icon(Icons.warning, size: 14, color: Color(0xFFF97316));
-      case NodeIconType.idea:
-        return const Icon(Icons.lightbulb, size: 14, color: Color(0xFFEAB308));
+      case NodeIconType.info:
+        return const Icon(Icons.info, size: 14, color: Color(0xFF0284C7));
+      case NodeIconType.circle:
+        return const Icon(Icons.lens, size: 12, color: Color(0xFF8B5CF6));
       case NodeIconType.none:
       default:
         return const SizedBox.shrink();
