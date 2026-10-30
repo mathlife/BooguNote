@@ -75,27 +75,15 @@ const STORAGE_KEY_TABS = 'boogunote_next_tabs_v2';
 const STORAGE_KEY_CONFIG = 'boogunote_next_config_v5';
 const STORAGE_KEY_SYNC = 'boogunote_next_sync_v1';
 
-// 构建默认初始标签页（现代指南.md + 原版教程.boo）
+// 构建默认初始标签页（首次打开或清空时呈现干净的未命名空白笔记）
 function createInitialTabs(): DocTab[] {
-  const guideNodes = parseMarkdownToNodes(MODERN_GUIDE_MD);
-  const legacyNodes = parseBooXml(LEGACY_TUTORIAL_BOO_XML);
-
+  const empty = createEmptyNode({ content: '' });
   return [
     {
-      id: 'tab_guide',
-      title: '快速指南.md',
-      nodes: guideNodes,
-      focusedId: guideNodes[0]?.id ?? null,
-      selectedIds: [],
-      isDirty: false,
-      undoStack: [],
-      redoStack: [],
-    },
-    {
-      id: 'tab_legacy',
-      title: '原版教程.boo',
-      nodes: legacyNodes,
-      focusedId: legacyNodes[0]?.id ?? null,
+      id: 'tab_' + generateNodeId(),
+      title: '未命名笔记.md',
+      nodes: [empty],
+      focusedId: empty.id,
       selectedIds: [],
       isDirty: false,
       undoStack: [],
@@ -176,7 +164,16 @@ export const App: React.FC = () => {
       if (saved) {
         const parsed = JSON.parse(saved) as DocTab[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          // 若仅存有旧版本遗留的内置教程标签且未编辑过，自动迁移为干净的未命名空白笔记
+          const isOnlyDefaultTutorials =
+            parsed.length <= 2 &&
+            parsed.every(
+              (t) =>
+                (t.id === 'tab_guide' || t.id === 'tab_legacy') && !t.isDirty
+            );
+          if (!isOnlyDefaultTutorials) {
+            return parsed;
+          }
         }
       }
     } catch {
@@ -186,7 +183,7 @@ export const App: React.FC = () => {
   });
 
   const [activeTabId, setActiveTabId] = useState<string>(
-    () => tabs[0]?.id || 'tab_guide'
+    () => tabs[0]?.id || 'tab_init'
   );
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1828,7 +1825,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 className="bn-toolbar-icon-btn"
-                title="重置内置教程与演示文档"
+                title="清空并新建空白大纲笔记"
                 onClick={handleResetDemo}
               >
                 <RotateCcw size={14} />
@@ -2220,6 +2217,75 @@ export const App: React.FC = () => {
                 开源协议：MIT License · 支持平台：Windows / macOS / Linux /
                 Android / iOS
               </p>
+
+              <div
+                style={{
+                  marginTop: 12,
+                  paddingTop: 10,
+                  borderTop: '1px solid var(--bn-border-color)',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--bn-text-muted)',
+                    display: 'block',
+                    marginBottom: 6,
+                  }}
+                >
+                  独立教程参考文档（可点击直接打开查阅）：
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="bn-btn secondary"
+                    style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => {
+                      const parsed = parseMarkdownToNodes(MODERN_GUIDE_MD);
+                      const newTab: DocTab = {
+                        id: 'tab_' + generateNodeId(),
+                        title: '快速指南.md',
+                        filePath: '快速指南.md',
+                        nodes: parsed,
+                        focusedId: parsed[0]?.id ?? null,
+                        selectedIds: [],
+                        isDirty: false,
+                        undoStack: [],
+                        redoStack: [],
+                      };
+                      setTabs((prev) => [...prev, newTab]);
+                      setActiveTabId(newTab.id);
+                      setAboutModalOpen(false);
+                    }}
+                  >
+                    打开 快速指南.md
+                  </button>
+                  <button
+                    type="button"
+                    className="bn-btn secondary"
+                    style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => {
+                      const parsed = parseBooXml(LEGACY_TUTORIAL_BOO_XML);
+                      const newTab: DocTab = {
+                        id: 'tab_' + generateNodeId(),
+                        title: '原版教程.boo',
+                        filePath: '原版教程.boo',
+                        nodes: parsed,
+                        focusedId: parsed[0]?.id ?? null,
+                        selectedIds: [],
+                        isDirty: false,
+                        undoStack: [],
+                        redoStack: [],
+                      };
+                      setTabs((prev) => [...prev, newTab]);
+                      setActiveTabId(newTab.id);
+                      setAboutModalOpen(false);
+                    }}
+                  >
+                    打开 原版教程.boo
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
