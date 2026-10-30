@@ -1,10 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/cloud_sync_config.dart';
 import '../models/doc_tab.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/storage_service.dart';
 
-/// 多端云同步设置对话框
+/// 多端云同步设置对话框（手机/平板/桌面完美自适应）
 class CloudSyncDialog extends StatefulWidget {
   final List<DocTab> currentTabs;
   final ValueChanged<List<DocTab>> onTabsPulled;
@@ -166,209 +167,352 @@ class _CloudSyncDialogState extends State<CloudSyncDialog> {
     }
   }
 
+  Widget _buildProviderSelector(bool isSmallScreen) {
+    final providers = [
+      {'id': 'github-repo', 'name': 'GitHub 仓库', 'icon': Icons.folder_shared_outlined},
+      {'id': 'github-gist', 'name': 'GitHub Gist', 'icon': Icons.code_outlined},
+      {'id': 'webdav', 'name': 'WebDAV (坚果云)', 'icon': Icons.cloud_outlined},
+    ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: providers.map((p) {
+        final isSelected = _config.provider == p['id'];
+        return ChoiceChip(
+          selected: isSelected,
+          avatar: Icon(
+            p['icon'] as IconData,
+            size: 16,
+            color: isSelected ? Colors.white : const Color(0xFF475569),
+          ),
+          label: Text(
+            p['name'] as String,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? Colors.white : const Color(0xFF334155),
+            ),
+          ),
+          selectedColor: const Color(0xFF2563EB),
+          backgroundColor: const Color(0xFFF1F5F9),
+          side: BorderSide(
+            color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0),
+          ),
+          onSelected: (_) {
+            setState(() {
+              _config.provider = p['id'] as String;
+              _statusMessage = '';
+            });
+          },
+        );
+      }).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const AlertDialog(
-        content: SizedBox(
-          height: 100,
-          child: Center(child: CircularProgressIndicator()),
+      return const Dialog(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('正在载入同步配置...'),
+            ],
+          ),
         ),
       );
     }
 
-    return AlertDialog(
-      title: Row(
-        children: [
-          const Icon(Icons.cloud_sync, color: Color(0xFF1976D2), size: 26),
-          const SizedBox(width: 10),
-          const Text('多端云同步设置', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: 540,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                '通过 Git 仓库、Gist 或 WebDAV 随时保持多端笔记同步，数据完全属于您自己。',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              // 同步服务商选择
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'github-repo',
-                    label: Text('GitHub 仓库'),
-                    icon: Icon(Icons.folder_shared_outlined, size: 16),
-                  ),
-                  ButtonSegment(
-                    value: 'github-gist',
-                    label: Text('GitHub Gist'),
-                    icon: Icon(Icons.code_outlined, size: 16),
-                  ),
-                  ButtonSegment(
-                    value: 'webdav',
-                    label: Text('WebDAV (坚果云)'),
-                    icon: Icon(Icons.cloud_outlined, size: 16),
-                  ),
-                ],
-                selected: {_config.provider},
-                onSelectionChanged: (newVal) {
-                  setState(() {
-                    _config.provider = newVal.first;
-                    _statusMessage = '';
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 500;
+    final dialogWidth = isSmallScreen ? (screenWidth - 32) : 520.0;
 
-              // 根据 provider 显示对应的字段
-              if (_config.provider == 'github-repo') ...[
-                _buildTextField(
-                  label: 'GitHub Personal Access Token (PAT)',
-                  hint: 'ghp_xxx 或 github_pat_xxx (需勾选 repo 权限)',
-                  controller: _ghTokenCtrl,
-                  obscureText: true,
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: dialogWidth,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 1. 顶部标题栏
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.cloud_sync, color: Color(0xFF2563EB), size: 22),
                 ),
-                const SizedBox(height: 10),
-                _buildTextField(
-                  label: '仓库路径 (Repository)',
-                  hint: '例如: yourname/my-notes',
-                  controller: _ghRepoCtrl,
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    '多端云同步设置',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF1E293B)),
+                  ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        label: '分支名 (Branch)',
-                        hint: 'main',
-                        controller: _ghBranchCtrl,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
-                        label: '存放子目录 (Path)',
-                        hint: 'notes',
-                        controller: _ghPathCtrl,
-                      ),
-                    ),
-                  ],
-                ),
-              ] else if (_config.provider == 'github-gist') ...[
-                _buildTextField(
-                  label: 'GitHub Personal Access Token (PAT)',
-                  hint: '需勾选 gist 权限',
-                  controller: _ghTokenCtrl,
-                  obscureText: true,
-                ),
-                const SizedBox(height: 10),
-                _buildTextField(
-                  label: 'Gist ID (留空将在初次推送时自动新建)',
-                  hint: '例如: 8a7c2b5e...',
-                  controller: _gistIdCtrl,
-                ),
-              ] else if (_config.provider == 'webdav') ...[
-                _buildTextField(
-                  label: 'WebDAV 服务器地址',
-                  hint: '坚果云示例: https://dav.jianguoyun.com/dav/BooguNote/',
-                  controller: _webdavUrlCtrl,
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        label: '账号 / 邮箱',
-                        hint: 'your_email@example.com',
-                        controller: _webdavUserCtrl,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
-                        label: '应用授权密码',
-                        hint: '坚果云在账户信息->安全设置中生成',
-                        controller: _webdavPassCtrl,
-                        obscureText: true,
-                      ),
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20, color: Color(0xFF64748B)),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
 
-              const SizedBox(height: 16),
-
-              // 状态显示
-              if (_statusMessage.isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _isSuccess ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: _isSuccess ? const Color(0xFFA5D6A7) : const Color(0xFFFFCDD2),
+            // 2. 表单内容区（支持垂直滚动防溢出）
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '通过 GitHub 仓库、Gist 或 WebDAV 随时保持多端笔记同步，数据完全属于您自己。',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.3),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _isSuccess ? Icons.check_circle : Icons.error,
-                        size: 16,
-                        color: _isSuccess ? Colors.green[700] : Colors.red[700],
+                    const SizedBox(height: 14),
+
+                    // 服务商单选
+                    _buildProviderSelector(isSmallScreen),
+                    const SizedBox(height: 14),
+
+                    // 对应的表单输入项
+                    if (_config.provider == 'github-repo') ...[
+                      _buildTextField(
+                        label: 'GitHub Personal Access Token (PAT)',
+                        hint: 'ghp_xxx 或 github_pat_xxx (需 repo 权限)',
+                        controller: _ghTokenCtrl,
+                        obscureText: true,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _statusMessage,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _isSuccess ? Colors.green[800] : Colors.red[800],
+                      const SizedBox(height: 10),
+                      _buildTextField(
+                        label: '仓库路径 (Repository)',
+                        hint: '例如: yourname/my-notes',
+                        controller: _ghRepoCtrl,
+                      ),
+                      const SizedBox(height: 10),
+                      if (isSmallScreen) ...[
+                        _buildTextField(
+                          label: '分支名 (Branch)',
+                          hint: 'main',
+                          controller: _ghBranchCtrl,
+                        ),
+                        const SizedBox(height: 10),
+                        _buildTextField(
+                          label: '存放子目录 (Path)',
+                          hint: 'notes',
+                          controller: _ghPathCtrl,
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildTextField(
+                                label: '分支名 (Branch)',
+                                hint: 'main',
+                                controller: _ghBranchCtrl,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildTextField(
+                                label: '存放子目录 (Path)',
+                                hint: 'notes',
+                                controller: _ghPathCtrl,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ] else if (_config.provider == 'github-gist') ...[
+                      _buildTextField(
+                        label: 'GitHub Personal Access Token (PAT)',
+                        hint: '需勾选 gist 权限',
+                        controller: _ghTokenCtrl,
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildTextField(
+                        label: 'Gist ID (留空将在初次推送时自动新建)',
+                        hint: '例如: 8a7c2b5e...',
+                        controller: _gistIdCtrl,
+                      ),
+                    ] else if (_config.provider == 'webdav') ...[
+                      _buildTextField(
+                        label: 'WebDAV 服务器地址',
+                        hint: '坚果云: https://dav.jianguoyun.com/dav/BooguNote/',
+                        controller: _webdavUrlCtrl,
+                      ),
+                      const SizedBox(height: 10),
+                      if (isSmallScreen) ...[
+                        _buildTextField(
+                          label: '账号 / 邮箱',
+                          hint: 'your_email@example.com',
+                          controller: _webdavUserCtrl,
+                        ),
+                        const SizedBox(height: 10),
+                        _buildTextField(
+                          label: '应用授权密码',
+                          hint: '坚果云在账户信息->安全设置中生成',
+                          controller: _webdavPassCtrl,
+                          obscureText: true,
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildTextField(
+                                label: '账号 / 邮箱',
+                                hint: 'your_email@example.com',
+                                controller: _webdavUserCtrl,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildTextField(
+                                label: '应用授权密码',
+                                hint: '坚果云在账户信息->安全设置中生成',
+                                controller: _webdavPassCtrl,
+                                obscureText: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+
+                    const SizedBox(height: 14),
+
+                    // 状态提示条
+                    if (_statusMessage.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _isSuccess ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: _isSuccess ? const Color(0xFFBBF7D0) : const Color(0xFFFECACA),
                           ),
                         ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _isSuccess ? Icons.check_circle : Icons.error,
+                              size: 16,
+                              color: _isSuccess ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _statusMessage,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _isSuccess ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 3. 底部操作按钮栏（手机触屏大按钮排版）
+            if (isSmallScreen) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isOperating ? null : _handlePull,
+                      icon: _isOperating
+                          ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.cloud_download_outlined, size: 16),
+                      label: const Text('从云端拉取'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _isOperating ? null : _handlePush,
+                      icon: _isOperating
+                          ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.cloud_upload_outlined, size: 16),
+                      label: const Text('推送到云端'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        backgroundColor: const Color(0xFF2563EB),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: _isOperating ? null : _handleSave,
+                  icon: const Icon(Icons.save_outlined, size: 16),
+                  label: const Text('仅保存配置'),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
+              ),
+            ] else ...[
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: _isOperating ? null : _handleSave,
+                    icon: const Icon(Icons.save_outlined, size: 16),
+                    label: const Text('保存配置'),
+                  ),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _isOperating ? null : _handlePull,
+                    icon: _isOperating
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.cloud_download_outlined, size: 16),
+                    label: const Text('从云端拉取'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _isOperating ? null : _handlePush,
+                    icon: _isOperating
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.cloud_upload_outlined, size: 16),
+                    label: const Text('推送到云端'),
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                  ),
+                ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
-      actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      actions: [
-        TextButton.icon(
-          onPressed: _isOperating ? null : _handleSave,
-          icon: const Icon(Icons.save_outlined, size: 16),
-          label: const Text('保存配置'),
-        ),
-        const Spacer(),
-        OutlinedButton.icon(
-          onPressed: _isOperating ? null : _handlePull,
-          icon: _isOperating
-              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.cloud_download_outlined, size: 16),
-          label: const Text('从云端拉取'),
-        ),
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: _isOperating ? null : _handlePush,
-          icon: _isOperating
-              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.cloud_upload_outlined, size: 16),
-          label: const Text('推送到云端'),
-        ),
-      ],
     );
   }
 
@@ -381,22 +525,37 @@ class _CloudSyncDialogState extends State<CloudSyncDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+        ),
+        const SizedBox(height: 5),
         TextField(
           controller: controller,
           obscureText: obscureText,
           style: const TextStyle(fontSize: 13),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(fontSize: 12, color: Colors.black26),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             isDense: true,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
+            ),
           ),
         ),
       ],
     );
   }
 }
-
