@@ -14,3 +14,4 @@ contextBridge.exposeInMainWorld('booguDesktop', {
     return () => ipcRenderer.removeListener('boogu:dock-state-changed', handler);
   },
 });
+

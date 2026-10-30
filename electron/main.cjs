@@ -1,5 +1,7 @@
-// Electron 跨平台独立桌面应用主进程
-// 支持：1. 物理窗口尺寸自适应切换  2. 拖拽贴边自动吸附 (顶/右/左)  3. 靠边自动隐藏与鼠标移入自动下拉/滑出
+// Electron 跨平台独立桌面应用主进程 (Windows / macOS / Linux)
+// 1. 默认以经典窄边框模式 (400x680) 启动
+// 2. 窗口拖拽至屏幕任意边缘 (上/左/右) 自动触发靠边自动隐藏，拖离边缘自动恢复正常窗口
+// 3. 完整支持右上角主菜单的【正常窗口 / 靠边窗口 / 自动隐藏窗口 / 隐藏显示 / 置顶 / 打开默认目录 / 退出】
 const {
   app,
   BrowserWindow,
@@ -14,26 +16,37 @@ const path = require('path');
 let mainWindow = null;
 let hoverCheckTimer = null;
 let hideDelayTimer = null;
+let isProgrammaticMove = false;
 
-// 记录标准模式下的窗口位置与尺寸，以便从靠边模式切回标准模式时精准恢复
-let normalBounds = { width: 1020, height: 740, x: undefined, y: undefined };
+const DEFAULT_NARROW_WIDTH = 400;
+const DEFAULT_NARROW_HEIGHT = 680;
+const COLLAPSED_THICKNESS = 6; // 自动隐藏收起后保留在屏幕边缘的感应条厚度 (px)
+const SNAP_THRESHOLD = 16;     // 拖拽窗口贴近屏幕边缘自动触发自动隐藏的阈值 (px)
+
+// 记录正常窗口与展开态窗口的真实矩形（保留用户拖拽的位置与宽高）
+let normalBounds = {
+  width: DEFAULT_NARROW_WIDTH,
+  height: DEFAULT_NARROW_HEIGHT,
+  x: undefined,
+  y: undefined,
+};
+let expandedBounds = {
+  width: DEFAULT_NARROW_WIDTH,
+  height: DEFAULT_NARROW_HEIGHT,
+  x: 0,
+  y: 0,
+};
 
 // 当前窗口停靠与隐藏状态
 let dockState = {
-  mode: 'normal',       // 'normal' (标准窗口) | 'docked' (靠边固定窄框) | 'auto-hide' (靠边自动吸附隐藏)
-  edge: 'right',        // 'right' (右侧滑出) | 'top' (顶部下拉) | 'left' (左侧滑出)
+  mode: 'normal',       // 'normal' (正常窗口) | 'docked' (靠边窗口) | 'auto-hide' (自动隐藏窗口)
+  edge: 'right',        // 'right' | 'top' | 'left'
   alwaysOnTop: false,   // 是否置顶
   isCollapsed: false,   // 当前是否处于已缩回边缘隐藏状态
 };
 
-const DOCK_WIDTH_SIDE = 430;      // 左右停靠时的窄框物理宽度
-const DOCK_WIDTH_TOP = 500;       // 顶部下拉停靠时的物理宽度
-const DOCK_HEIGHT_TOP = 640;      // 顶部下拉停靠时的物理高度
-const COLLAPSED_THICKNESS = 6;    // 自动隐藏收起后保留在屏幕边缘的感应条厚度 (px)
-const SNAP_THRESHOLD = 14;        // 拖拽窗口贴近屏幕边缘自动触发吸附的阈值 (px)
-
 function getDisplayWorkArea() {
-  if (!mainWindow) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
     return screen.getPrimaryDisplay().workArea;
   }
   const winBounds = mainWindow.getBounds();
@@ -41,87 +54,118 @@ function getDisplayWorkArea() {
   return display.workArea;
 }
 
-// 计算展开状态下的停靠物理窗口矩形
-function calcExpandedDockBounds(edge, workArea) {
+function setWindowBoundsSafe(bounds, animate = false) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  isProgrammaticMove = true;
+  mainWindow.setBounds(bounds, animate);
+  setTimeout(() => {
+    isProgrammaticMove = false;
+  }, 140);
+}
+
+// 根据当前窗口坐标判断距离屏幕哪一侧边缘最近 ('top' | 'left' | 'right')
+function detectNearestEdge(bounds, workArea) {
+  const distTop = Math.abs(bounds.y - workArea.y);
+  const distLeft = Math.abs(bounds.x - workArea.x);
+  const distRight = Math.abs(
+    workArea.x + workArea.width - (bounds.x + bounds.width)
+  );
+  if (distTop <= distLeft && distTop <= distRight && distTop <= 80) {
+    return 'top';
+  }
+  return distLeft < distRight ? 'left' : 'right';
+}
+
+// 计算贴边展开态的窗口矩形（保留窗口原有窄框尺寸与沿边缘方向的坐标）
+function calcSnappedExpandedBounds(edge, currentBounds, workArea, fullHeightSidebar = false) {
+  const w = Math.min(
+    Math.max(280, currentBounds.width || DEFAULT_NARROW_WIDTH),
+    workArea.width
+  );
+  const h = fullHeightSidebar
+    ? workArea.height
+    : Math.min(
+        Math.max(300, currentBounds.height || DEFAULT_NARROW_HEIGHT),
+        workArea.height
+      );
+
   if (edge === 'top') {
-    const winBounds = mainWindow ? mainWindow.getBounds() : normalBounds;
-    // 保持当前水平 X 坐标（限制在屏幕内），Y 贴紧屏幕顶部
-    const w = DOCK_WIDTH_TOP;
-    const h = Math.min(DOCK_HEIGHT_TOP, workArea.height - 40);
-    const defaultX = workArea.x + Math.round((workArea.width - w) / 2);
-    const rawX = winBounds.x !== undefined ? winBounds.x : defaultX;
     const clampedX = Math.max(
       workArea.x,
-      Math.min(rawX, workArea.x + workArea.width - w)
+      Math.min(currentBounds.x, workArea.x + workArea.width - w)
     );
     return { x: clampedX, y: workArea.y, width: w, height: h };
   }
 
+  const clampedY = fullHeightSidebar
+    ? workArea.y
+    : Math.max(
+        workArea.y,
+        Math.min(currentBounds.y, workArea.y + workArea.height - h)
+      );
+
   if (edge === 'left') {
-    return {
-      x: workArea.x,
-      y: workArea.y,
-      width: DOCK_WIDTH_SIDE,
-      height: workArea.height,
-    };
+    return { x: workArea.x, y: clampedY, width: w, height: h };
   }
 
-  // 默认右侧停靠 ('right')
   return {
-    x: workArea.x + workArea.width - DOCK_WIDTH_SIDE,
-    y: workArea.y,
-    width: DOCK_WIDTH_SIDE,
-    height: workArea.height,
+    x: workArea.x + workArea.width - w,
+    y: clampedY,
+    width: w,
+    height: h,
   };
 }
 
-// 计算自动隐藏收起后的边缘感应条物理窗口矩形
-function calcCollapsedDockBounds(edge, expandedBounds, workArea) {
+// 计算自动隐藏收起后的 6px 边缘感应条矩形
+function calcCollapsedStripBounds(edge, expBounds, workArea) {
   if (edge === 'top') {
     return {
-      x: expandedBounds.x,
+      x: expBounds.x,
       y: workArea.y,
-      width: expandedBounds.width,
+      width: expBounds.width,
       height: COLLAPSED_THICKNESS,
     };
   }
   if (edge === 'left') {
     return {
       x: workArea.x,
-      y: expandedBounds.y,
+      y: expBounds.y,
       width: COLLAPSED_THICKNESS,
-      height: expandedBounds.height,
+      height: expBounds.height,
     };
   }
-  // 右侧边缘收起
   return {
     x: workArea.x + workArea.width - COLLAPSED_THICKNESS,
-    y: expandedBounds.y,
+    y: expBounds.y,
     width: COLLAPSED_THICKNESS,
-    height: expandedBounds.height,
+    height: expBounds.height,
   };
 }
 
-// 向前端渲染进程同步最新停靠状态
 function notifyRendererDockState() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('boogu:dock-state-changed', { ...dockState });
   }
 }
 
-// 展开自动隐藏的窗口（鼠标移入边缘时自动下拉/滑出）
+// 展开自动隐藏的窗口（鼠标移入屏幕边缘隐藏处时自动下拉/滑出显示窗口主体）
 function expandAutoHideWindow() {
   if (!mainWindow || mainWindow.isDestroyed() || !dockState.isCollapsed) return;
   dockState.isCollapsed = false;
   const workArea = getDisplayWorkArea();
-  const target = calcExpandedDockBounds(dockState.edge, workArea);
-  mainWindow.setMinimumSize(320, 300);
-  mainWindow.setBounds(target, true);
+  expandedBounds = calcSnappedExpandedBounds(
+    dockState.edge,
+    expandedBounds,
+    workArea,
+    false
+  );
+  mainWindow.setMinimumSize(260, 280);
   mainWindow.setAlwaysOnTop(true, 'floating');
+  setWindowBoundsSafe(expandedBounds, true);
   notifyRendererDockState();
 }
 
-// 收起窗口到屏幕边缘（鼠标移出窗口后自动隐藏）
+// 收起窗口到屏幕边缘（鼠标移出窗口后自动隐藏为 6px 细条）
 function collapseAutoHideWindow() {
   if (
     !mainWindow ||
@@ -132,34 +176,44 @@ function collapseAutoHideWindow() {
     return;
   }
   const workArea = getDisplayWorkArea();
-  const expanded = calcExpandedDockBounds(dockState.edge, workArea);
-  const collapsed = calcCollapsedDockBounds(dockState.edge, expanded, workArea);
+  const current = mainWindow.getBounds();
+  expandedBounds = calcSnappedExpandedBounds(
+    dockState.edge,
+    current,
+    workArea,
+    false
+  );
+  const collapsed = calcCollapsedStripBounds(
+    dockState.edge,
+    expandedBounds,
+    workArea
+  );
 
   dockState.isCollapsed = true;
-  // 允许窗口缩窄/缩矮到 6px 感应条尺寸
   mainWindow.setMinimumSize(4, 4);
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setBounds(collapsed, true);
+  setWindowBoundsSafe(collapsed, true);
   notifyRendererDockState();
 }
 
-// 启动全局鼠标坐标轮询：实现丝滑的“移入边缘自动下拉/滑出，移出窗口自动收起隐藏”
+// 50ms 全局鼠标位置轮询：鼠标移到边缘隐藏处自动下拉/滑出，移出窗口自动收起
 function startCursorMonitor() {
   if (hoverCheckTimer) clearInterval(hoverCheckTimer);
 
   hoverCheckTimer = setInterval(() => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) {
+      return;
+    }
     if (dockState.mode !== 'auto-hide') return;
 
     const cursor = screen.getCursorScreenPoint();
     const bounds = mainWindow.getBounds();
 
     if (dockState.isCollapsed) {
-      // 当处于边缘收起状态时，检测鼠标是否触碰到边缘感应区（放宽 4px 感应裕度）
       const hitX =
-        cursor.x >= bounds.x - 4 && cursor.x <= bounds.x + bounds.width + 4;
+        cursor.x >= bounds.x - 6 && cursor.x <= bounds.x + bounds.width + 6;
       const hitY =
-        cursor.y >= bounds.y - 4 && cursor.y <= bounds.y + bounds.height + 4;
+        cursor.y >= bounds.y - 6 && cursor.y <= bounds.y + bounds.height + 6;
 
       if (hitX && hitY) {
         if (hideDelayTimer) {
@@ -169,18 +223,17 @@ function startCursorMonitor() {
         expandAutoHideWindow();
       }
     } else {
-      // 当处于展开状态时，检测鼠标是否已经离开窗口范围
       const insideX =
-        cursor.x >= bounds.x - 8 && cursor.x <= bounds.x + bounds.width + 8;
+        cursor.x >= bounds.x - 10 && cursor.x <= bounds.x + bounds.width + 10;
       const insideY =
-        cursor.y >= bounds.y - 8 && cursor.y <= bounds.y + bounds.height + 8;
+        cursor.y >= bounds.y - 10 && cursor.y <= bounds.y + bounds.height + 10;
 
       if (!insideX || !insideY) {
         if (!hideDelayTimer) {
           hideDelayTimer = setTimeout(() => {
             hideDelayTimer = null;
             collapseAutoHideWindow();
-          }, 380);
+          }, 360);
         }
       } else if (hideDelayTimer) {
         clearTimeout(hideDelayTimer);
@@ -190,14 +243,40 @@ function startCursorMonitor() {
   }, 50);
 }
 
-// 应用新的窗口停靠模式与物理尺寸
+// 处理来自菜单、快捷键或拖拽的窗口状态变更
 function applyDockState(nextPartial) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const prevMode = dockState.mode;
-  if (prevMode === 'normal' && nextPartial.mode && nextPartial.mode !== 'normal') {
-    // 从标准窗口切入靠边模式前，先保存标准窗口的真实尺寸与坐标
-    normalBounds = mainWindow.getBounds();
+  // 处理特殊动作指令
+  if (nextPartial.action === 'toggle-hide-window') {
+    if (dockState.mode === 'auto-hide' && dockState.isCollapsed) {
+      expandAutoHideWindow();
+      mainWindow.show();
+      mainWindow.focus();
+    } else if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    return;
+  }
+
+  if (nextPartial.action === 'open-default-dir') {
+    shell.openPath(app.getPath('documents'));
+    return;
+  }
+
+  if (nextPartial.action === 'quit-app') {
+    app.quit();
+    return;
+  }
+
+  const workArea = getDisplayWorkArea();
+  const curBounds = dockState.isCollapsed ? expandedBounds : mainWindow.getBounds();
+
+  if (dockState.mode === 'normal' && nextPartial.mode && nextPartial.mode !== 'normal') {
+    normalBounds = { ...curBounds };
   }
 
   if (hideDelayTimer) {
@@ -205,41 +284,69 @@ function applyDockState(nextPartial) {
     hideDelayTimer = null;
   }
 
+  const targetMode = nextPartial.mode || dockState.mode;
+  const targetEdge =
+    nextPartial.edge ||
+    (targetMode !== 'normal' && dockState.mode === 'normal'
+      ? detectNearestEdge(curBounds, workArea)
+      : dockState.edge || 'right');
+  const targetAlwaysOnTop =
+    nextPartial.alwaysOnTop !== undefined
+      ? Boolean(nextPartial.alwaysOnTop)
+      : targetMode !== 'normal'
+      ? true
+      : dockState.alwaysOnTop;
+
   dockState = {
-    ...dockState,
-    ...nextPartial,
+    mode: targetMode,
+    edge: targetEdge,
+    alwaysOnTop: targetAlwaysOnTop,
     isCollapsed: false,
   };
 
-  const workArea = getDisplayWorkArea();
-
   if (dockState.mode === 'normal') {
-    mainWindow.setMinimumSize(360, 420);
+    mainWindow.setMinimumSize(260, 280);
     mainWindow.setAlwaysOnTop(Boolean(dockState.alwaysOnTop));
-    const restoreW = Math.max(780, normalBounds.width || 1020);
-    const restoreH = Math.max(540, normalBounds.height || 740);
+    const restoreW = normalBounds.width || DEFAULT_NARROW_WIDTH;
+    const restoreH = normalBounds.height || DEFAULT_NARROW_HEIGHT;
     const restoreX =
       normalBounds.x !== undefined
-        ? normalBounds.x
-        : workArea.x + Math.round((workArea.width - restoreW) / 2);
+        ? Math.max(
+            workArea.x + 20,
+            Math.min(normalBounds.x, workArea.x + workArea.width - restoreW - 20)
+          )
+        : workArea.x + workArea.width - restoreW - 60;
     const restoreY =
       normalBounds.y !== undefined
-        ? normalBounds.y
+        ? Math.max(
+            workArea.y + 20,
+            Math.min(normalBounds.y, workArea.y + workArea.height - restoreH - 20)
+          )
         : workArea.y + Math.round((workArea.height - restoreH) / 2);
-    mainWindow.setBounds(
+
+    setWindowBoundsSafe(
       { x: restoreX, y: restoreY, width: restoreW, height: restoreH },
       true
     );
   } else if (dockState.mode === 'docked') {
-    mainWindow.setMinimumSize(320, 360);
+    // 靠边窗口模式 (Win+O)：贴合左/右边缘并占满工作区高度
+    const sideEdge = dockState.edge === 'left' ? 'left' : 'right';
+    dockState.edge = sideEdge;
+    expandedBounds = calcSnappedExpandedBounds(sideEdge, curBounds, workArea, true);
+    mainWindow.setMinimumSize(260, 280);
     mainWindow.setAlwaysOnTop(true, 'floating');
-    const target = calcExpandedDockBounds(dockState.edge, workArea);
-    mainWindow.setBounds(target, true);
+    setWindowBoundsSafe(expandedBounds, true);
   } else if (dockState.mode === 'auto-hide') {
-    mainWindow.setMinimumSize(320, 360);
+    // 自动隐藏窗口模式：贴紧所在屏幕边缘并保留当前窄窗口尺寸与位置
+    expandedBounds = calcSnappedExpandedBounds(
+      dockState.edge,
+      curBounds,
+      workArea,
+      false
+    );
+    mainWindow.setMinimumSize(260, 280);
     mainWindow.setAlwaysOnTop(true, 'floating');
-    const target = calcExpandedDockBounds(dockState.edge, workArea);
-    mainWindow.setBounds(target, true);
+    setWindowBoundsSafe(expandedBounds, true);
   }
 
   notifyRendererDockState();
@@ -247,22 +354,24 @@ function applyDockState(nextPartial) {
 
 function createMainWindow() {
   const workArea = screen.getPrimaryDisplay().workArea;
-  const initW = 1020;
-  const initH = Math.min(760, workArea.height - 60);
+  const initW = DEFAULT_NARROW_WIDTH;
+  const initH = Math.min(DEFAULT_NARROW_HEIGHT, workArea.height - 60);
+  // 默认以经典窄窗口启动，置于屏幕偏右侧舒适位置
   normalBounds = {
     width: initW,
     height: initH,
-    x: workArea.x + Math.round((workArea.width - initW) / 2),
+    x: workArea.x + workArea.width - initW - 72,
     y: workArea.y + Math.round((workArea.height - initH) / 2),
   };
+  expandedBounds = { ...normalBounds };
 
   mainWindow = new BrowserWindow({
     ...normalBounds,
-    minWidth: 360,
-    minHeight: 400,
+    minWidth: 260,
+    minHeight: 280,
     title: 'BooguNote',
     autoHideMenuBar: true,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f1f5f9',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -280,33 +389,83 @@ function createMainWindow() {
     return { action: 'allow' };
   });
 
-  // 监听用户手动拖拽窗口：如果拖到屏幕顶部/右侧/左侧边缘，自动触发靠边自动隐藏吸附！
+  // 监听用户手动拖拽窗口：
+  // 1. 拖到屏幕顶部/左侧/右侧边缘时自动触发【自动隐藏窗口】
+  // 2. 从屏幕边缘拖回屏幕内部时自动恢复【正常窗口】
   let moveSnapDebounce = null;
   mainWindow.on('moved', () => {
-    if (!mainWindow || dockState.isCollapsed) return;
+    if (!mainWindow || dockState.isCollapsed || isProgrammaticMove) return;
     if (moveSnapDebounce) clearTimeout(moveSnapDebounce);
 
     moveSnapDebounce = setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed() || dockState.isCollapsed) return;
+      if (
+        !mainWindow ||
+        mainWindow.isDestroyed() ||
+        dockState.isCollapsed ||
+        isProgrammaticMove
+      ) {
+        return;
+      }
       const b = mainWindow.getBounds();
       const wa = getDisplayWorkArea();
 
-      // 判断是否贴近屏幕顶部、右侧或左侧边缘
-      if (b.y <= wa.y + SNAP_THRESHOLD && Math.abs(b.height - wa.height) > 40) {
-        if (dockState.mode === 'normal') normalBounds = { ...b, y: wa.y + 40 };
-        applyDockState({ mode: 'auto-hide', edge: 'top', alwaysOnTop: true });
-      } else if (b.x + b.width >= wa.x + wa.width - SNAP_THRESHOLD) {
-        if (dockState.mode === 'normal') normalBounds = { ...b, x: wa.x + wa.width - b.width - 40 };
-        applyDockState({ mode: 'auto-hide', edge: 'right', alwaysOnTop: true });
-      } else if (b.x <= wa.x + SNAP_THRESHOLD) {
-        if (dockState.mode === 'normal') normalBounds = { ...b, x: wa.x + 40 };
-        applyDockState({ mode: 'auto-hide', edge: 'left', alwaysOnTop: true });
-      } else if (dockState.mode !== 'normal') {
-        // 如果用户把已停靠的窗口从屏幕边缘往中间拖离，则自动解除靠边停靠，但保持窄框或恢复自由移动
-        dockState.mode = 'normal';
+      const nearTop = b.y <= wa.y + SNAP_THRESHOLD;
+      const nearLeft = b.x <= wa.x + SNAP_THRESHOLD;
+      const nearRight = b.x + b.width >= wa.x + wa.width - SNAP_THRESHOLD;
+
+      if (nearTop && Math.abs(b.height - wa.height) > 30) {
+        if (dockState.mode === 'normal') {
+          normalBounds = { ...b, y: wa.y + 36 };
+        }
+        expandedBounds = calcSnappedExpandedBounds('top', b, wa, false);
+        dockState.mode = 'auto-hide';
+        dockState.edge = 'top';
+        dockState.alwaysOnTop = true;
+        mainWindow.setAlwaysOnTop(true, 'floating');
+        setWindowBoundsSafe(expandedBounds, true);
         notifyRendererDockState();
+      } else if (nearLeft) {
+        if (dockState.mode === 'normal') {
+          normalBounds = { ...b, x: wa.x + 36 };
+        }
+        expandedBounds = calcSnappedExpandedBounds('left', b, wa, false);
+        dockState.mode = 'auto-hide';
+        dockState.edge = 'left';
+        dockState.alwaysOnTop = true;
+        mainWindow.setAlwaysOnTop(true, 'floating');
+        setWindowBoundsSafe(expandedBounds, true);
+        notifyRendererDockState();
+      } else if (nearRight) {
+        if (dockState.mode === 'normal') {
+          normalBounds = { ...b, x: wa.x + wa.width - b.width - 36 };
+        }
+        expandedBounds = calcSnappedExpandedBounds('right', b, wa, false);
+        dockState.mode = 'auto-hide';
+        dockState.edge = 'right';
+        dockState.alwaysOnTop = true;
+        mainWindow.setAlwaysOnTop(true, 'floating');
+        setWindowBoundsSafe(expandedBounds, true);
+        notifyRendererDockState();
+      } else if (dockState.mode !== 'normal') {
+        // 用户将窗口从边缘拖回屏幕中央：自动解除自动隐藏，恢复为自由移动的正常窄窗口
+        dockState.mode = 'normal';
+        dockState.isCollapsed = false;
+        normalBounds = { ...b };
+        notifyRendererDockState();
+      } else {
+        normalBounds = { ...b };
       }
-    }, 180);
+    }, 160);
+  });
+
+  mainWindow.on('resized', () => {
+    if (!mainWindow || dockState.isCollapsed || isProgrammaticMove) return;
+    const b = mainWindow.getBounds();
+    if (dockState.mode === 'normal') {
+      normalBounds = { ...b };
+    } else {
+      expandedBounds = { ...b };
+    }
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -336,44 +495,44 @@ ipcMain.handle('boogu:get-dock-state', () => {
 app.whenReady().then(() => {
   createMainWindow();
 
-  // 注册全局快捷键：
-  // 1. Alt+Shift+O：切换靠边窄框停靠模式 (致敬原版 Win+O)
-  globalShortcut.register('Alt+Shift+O', () => {
+  // 注册全局快捷键（兼容原版 Win+O / Shift+Win+O / Win+H 及跨平台 Alt 组合键）
+  const tryRegister = (accels, handler) => {
+    for (const acc of accels) {
+      try {
+        if (globalShortcut.register(acc, handler)) break;
+      } catch {
+        // 某些系统保留键跳过并回退备用快捷键
+      }
+    }
+  };
+
+  // 1. 靠边窗口 (Win+O / Alt+O)
+  tryRegister(['Super+O', 'Alt+O'], () => {
     if (!mainWindow) return;
-    if (dockState.mode === 'normal') {
-      applyDockState({ mode: 'docked', edge: 'right', alwaysOnTop: true });
+    if (dockState.mode !== 'docked') {
+      applyDockState({ mode: 'docked' });
     } else {
       applyDockState({ mode: 'normal', alwaysOnTop: false });
     }
   });
 
-  // 2. Alt+Shift+H：切换靠边自动吸附隐藏模式 (致敬原版 Win+Shift+O)
-  globalShortcut.register('Alt+Shift+H', () => {
+  // 2. 自动隐藏窗口 (Shift+Win+O / Shift+Alt+O)
+  tryRegister(['Shift+Super+O', 'Alt+Shift+O'], () => {
     if (!mainWindow) return;
     if (dockState.mode !== 'auto-hide') {
-      applyDockState({ mode: 'auto-hide', edge: dockState.edge || 'right', alwaysOnTop: true });
+      applyDockState({ mode: 'auto-hide' });
     } else {
       applyDockState({ mode: 'normal', alwaysOnTop: false });
     }
   });
 
-  // 3. Alt+Shift+B：全局呼出/隐藏主窗口
-  globalShortcut.register('Alt+Shift+B', () => {
+  // 3. 隐藏/显示 窗口 (Win+H / Alt+H)
+  tryRegister(['Super+H', 'Alt+H'], () => {
     if (!mainWindow) {
       createMainWindow();
       return;
     }
-    if (dockState.mode === 'auto-hide' && dockState.isCollapsed) {
-      expandAutoHideWindow();
-      mainWindow.focus();
-      return;
-    }
-    if (mainWindow.isVisible() && mainWindow.isFocused()) {
-      mainWindow.hide();
-    } else {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    applyDockState({ action: 'toggle-hide-window' });
   });
 
   app.on('activate', () => {

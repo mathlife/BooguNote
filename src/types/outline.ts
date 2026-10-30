@@ -80,6 +80,7 @@ export interface WindowDockState {
   edge: WindowDockEdge;
   alwaysOnTop: boolean;
   isCollapsed?: boolean;
+  action?: 'toggle-hide-window' | 'open-default-dir' | 'quit-app';
 }
 
 // 全局视图与外观配置
@@ -87,12 +88,16 @@ export interface AppConfig {
   theme: 'classic' | 'modern-light' | 'modern-dark';
   showAllBranches: boolean; // 全局显示所有树枝连接线（默认开启以保证树结构视觉闭合）
   closedBlockCard: boolean; // 节点块是否显示闭合卡片边框（默认 true，视觉更美观规整）
-  narrowWidth: number;      // 窄块像素宽度（默认 360px）
-  wideWidth: number;        // 宽块像素宽度（默认 720px）
-  indentSize: number;       // 每层缩进像素宽度（默认 28px）
-  fontSize: number;         // 字体大小（默认 14px）
-  dockMode: WindowDockMode; // 窗口停靠模式：标准 | 靠边固定窄框 | 靠边自动吸附隐藏
+  narrowWidth: number;      // 窄块像素宽度（默认 310px，适配经典窄窗口）
+  wideWidth: number;        // 宽块像素宽度（默认 620px）
+  indentSize: number;       // 每层缩进像素宽度（默认 24px）
+  fontSize: number;         // 字体大小（默认 13.5px）
+  dockMode: WindowDockMode; // 窗口停靠模式：正常窗口 | 靠边窗口 | 自动隐藏窗口
   dockEdge: WindowDockEdge; // 停靠边缘方向：右侧 | 顶部下拉 | 左侧
+  alwaysOnTop: boolean;     // 是否窗口置顶
+  showToolbar: boolean;     // 是否显示顶部快捷工具栏（默认 false 隐藏）
+  showBottomBar: boolean;   // 是否显示底部功能按钮栏（默认 false 隐藏）
+  showStatusBar: boolean;   // 是否显示底部状态栏（默认 false 隐藏）
 }
 
 // 云同步提供商类型

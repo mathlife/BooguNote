@@ -3,9 +3,10 @@
 """
 生成零外部依赖的 Windows 原生单文件独立可执行程序 (BooguNote-Windows-Standalone.exe)
 将 dist/ 下的所有前端资源内嵌进单个 .exe 中，并集成 Win32 user32.dll 原生窗口控制宿主：
-1. 支持物理窗口尺寸自适应停靠（彻底消除内部蓝色留白底布）
-2. 支持拖拽窗口贴近屏幕左/右/上边缘自动吸附
-3. 支持靠边自动隐藏（收缩为 6px 顶层感应条，鼠标移入边缘自动下拉/滑出显示窗口主体）
+1. 默认以经典窄边框窗口 (400x680) 启动
+2. 拖拽窗口贴近屏幕任意边缘（上/左/右）自动触发靠边自动隐藏，拖离边缘自动恢复正常窗口
+3. 鼠标移出窗口自动收缩为 6px 顶层感应条，鼠标移入屏幕边缘自动下拉/滑出显示窗口主体
+4. 完整支持右上角主菜单的【正常窗口 / 靠边窗口 / 自动隐藏窗口 / 隐藏显示 / 置顶 / 打开默认目录 / 退出】
 """
 
 import base64
@@ -62,7 +63,6 @@ namespace BooguNoteStandalone
         private static readonly string EmbeddedHtmlBase64 = "__BASE64_PAYLOAD__";
         private static readonly string EmbeddedIconSvgBase64 = "__ICON_BASE64__";
 
-        // Win32 API 导入：控制独立桌面窗口尺寸、置顶与靠边自动隐藏
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         [DllImport("user32.dll")]
@@ -81,6 +81,12 @@ namespace BooguNoteStandalone
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
         [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int vKey);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -96,24 +102,29 @@ namespace BooguNoteStandalone
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         private const uint SWP_NOACTIVATE = 0x0010;
         private const uint SWP_SHOWWINDOW = 0x0040;
+        private const int SW_HIDE = 0;
+        private const int SW_SHOW = 5;
+        private const uint WM_CLOSE = 0x0010;
         private const int VK_LBUTTON = 0x01;
 
-        // 窗口停靠状态机
+        private const int DEFAULT_NARROW_WIDTH = 400;
+        private const int DEFAULT_NARROW_HEIGHT = 680;
+        private const int PEEK_THICKNESS = 6;
+        private const int SNAP_THRESHOLD = 16;
+
+        // 窗口停靠与隐藏状态机
         private static IntPtr appWindowHandle = IntPtr.Zero;
+        private static bool initialSized = false;
+        private static bool isHiddenByCommand = false;
         private static string dockMode = "normal"; // "normal" | "docked" | "auto-hide"
         private static string dockEdge = "right";  // "right" | "top" | "left"
+        private static bool alwaysOnTop = false;
         private static bool isCollapsed = false;
-        private static Rectangle normalBounds = new Rectangle(180, 90, 1020, 780);
-        private static Rectangle expandedBounds = new Rectangle(0, 0, 430, 800);
+        private static Rectangle normalBounds = new Rectangle(240, 100, DEFAULT_NARROW_WIDTH, DEFAULT_NARROW_HEIGHT);
+        private static Rectangle expandedBounds = new Rectangle(240, 100, DEFAULT_NARROW_WIDTH, DEFAULT_NARROW_HEIGHT);
         private static DateTime mouseLeaveTime = DateTime.MinValue;
         private static bool wasMouseDown = false;
         private static readonly object stateLock = new object();
-
-        private const int DOCK_SIDE_WIDTH = 430;
-        private const int DOCK_TOP_WIDTH = 520;
-        private const int DOCK_TOP_HEIGHT = 650;
-        private const int PEEK_THICKNESS = 6;
-        private const int SNAP_THRESHOLD = 14;
 
         [STAThread]
         static void Main()
@@ -133,7 +144,7 @@ namespace BooguNoteStandalone
             listener.Prefixes.Add(url);
             listener.Start();
 
-            // 启动 HTTP 本地桥接服务（同时服务前端 UI 与原生窗口停靠指令）
+            // 启动 HTTP 本地桥接服务（同时服务前端 UI 与原生窗口控制指令）
             Thread serverThread = new Thread(() =>
             {
                 while (listener.IsListening)
@@ -147,8 +158,9 @@ namespace BooguNoteStandalone
                         {
                             string mode = ctx.Request.QueryString["mode"];
                             string edge = ctx.Request.QueryString["edge"];
-                            string forceExpand = ctx.Request.QueryString["forceExpand"];
-                            ApplyDockCommand(mode, edge, forceExpand == "1");
+                            string topStr = ctx.Request.QueryString["alwaysOnTop"];
+                            string action = ctx.Request.QueryString["action"];
+                            ApplyDockCommand(mode, edge, topStr, action);
                             WriteJsonState(ctx.Response);
                         }
                         else if (path == "/__boogu_win_state")
@@ -184,7 +196,7 @@ namespace BooguNoteStandalone
             monitorThread.IsBackground = true;
             monitorThread.Start();
 
-            // 查找本机 Edge 或 Chrome 以独立无地址栏 App 桌面窗口启动
+            // 查找本机 Edge 或 Chrome 以独立无地址栏经典窄框窗口 (400x680) 启动
             string browserExe = FindAppHostBrowser();
             if (!string.IsNullOrEmpty(browserExe))
             {
@@ -195,7 +207,7 @@ namespace BooguNoteStandalone
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = browserExe,
-                    Arguments = string.Format("--app=\"{0}\" --window-size=1020,780 --user-data-dir=\"{1}\"", url, userDataDir),
+                    Arguments = string.Format("--app=\"{0}\" --window-size={1},{2} --user-data-dir=\"{3}\"", url, DEFAULT_NARROW_WIDTH, DEFAULT_NARROW_HEIGHT, userDataDir),
                     UseShellExecute = false
                 };
                 Process proc = Process.Start(psi);
@@ -219,9 +231,10 @@ namespace BooguNoteStandalone
             lock (stateLock)
             {
                 json = string.Format(
-                    "{{\"mode\":\"{0}\",\"edge\":\"{1}\",\"isCollapsed\":{2}}}",
+                    "{{\"mode\":\"{0}\",\"edge\":\"{1}\",\"alwaysOnTop\":{2},\"isCollapsed\":{3}}}",
                     dockMode,
                     dockEdge,
+                    alwaysOnTop ? "true" : "false",
                     isCollapsed ? "true" : "false"
                 );
             }
@@ -235,7 +248,7 @@ namespace BooguNoteStandalone
 
         private static IntPtr EnsureAppWindowHandle()
         {
-            if (appWindowHandle != IntPtr.Zero && IsWindowVisible(appWindowHandle))
+            if (appWindowHandle != IntPtr.Zero && (isHiddenByCommand || IsWindowVisible(appWindowHandle)))
             {
                 return appWindowHandle;
             }
@@ -257,26 +270,56 @@ namespace BooguNoteStandalone
             if (found != IntPtr.Zero)
             {
                 appWindowHandle = found;
+                if (!initialSized)
+                {
+                    initialSized = true;
+                    Rectangle wa = Screen.FromHandle(found).WorkingArea;
+                    int initW = DEFAULT_NARROW_WIDTH;
+                    int initH = Math.Min(DEFAULT_NARROW_HEIGHT, wa.Height - 60);
+                    int initX = wa.Right - initW - 72;
+                    int initY = wa.Top + (wa.Height - initH) / 2;
+                    normalBounds = new Rectangle(initX, initY, initW, initH);
+                    expandedBounds = normalBounds;
+                    SetWindowPos(found, HWND_NOTOPMOST, initX, initY, initW, initH, SWP_SHOWWINDOW);
+                }
             }
             return appWindowHandle;
         }
 
-        private static Rectangle ComputeDockedExpandedRect(string edge, Rectangle workArea, Rectangle currentRect)
+        private static string DetectNearestEdge(Rectangle bounds, Rectangle workArea)
         {
+            int distTop = Math.Abs(bounds.Top - workArea.Top);
+            int distLeft = Math.Abs(bounds.Left - workArea.Left);
+            int distRight = Math.Abs(workArea.Right - bounds.Right);
+            if (distTop <= distLeft && distTop <= distRight && distTop <= 80)
+            {
+                return "top";
+            }
+            return distLeft < distRight ? "left" : "right";
+        }
+
+        private static Rectangle ComputeSnappedExpandedRect(string edge, Rectangle workArea, Rectangle currentRect, bool fullHeightSidebar)
+        {
+            int w = Math.Min(Math.Max(280, currentRect.Width > 50 ? currentRect.Width : DEFAULT_NARROW_WIDTH), workArea.Width);
+            int h = fullHeightSidebar
+                ? workArea.Height
+                : Math.Min(Math.Max(300, currentRect.Height > 50 ? currentRect.Height : DEFAULT_NARROW_HEIGHT), workArea.Height);
+
             if (edge == "top")
             {
-                int w = Math.Min(DOCK_TOP_WIDTH, workArea.Width);
-                int h = Math.Min(DOCK_TOP_HEIGHT, workArea.Height);
                 int x = Math.Max(workArea.Left, Math.Min(currentRect.Left, workArea.Right - w));
                 return new Rectangle(x, workArea.Top, w, h);
             }
+
+            int y = fullHeightSidebar
+                ? workArea.Top
+                : Math.Max(workArea.Top, Math.Min(currentRect.Top, workArea.Bottom - h));
+
             if (edge == "left")
             {
-                int w = Math.Min(DOCK_SIDE_WIDTH, workArea.Width);
-                return new Rectangle(workArea.Left, workArea.Top, w, workArea.Height);
+                return new Rectangle(workArea.Left, y, w, h);
             }
-            int rw = Math.Min(DOCK_SIDE_WIDTH, workArea.Width);
-            return new Rectangle(workArea.Right - rw, workArea.Top, rw, workArea.Height);
+            return new Rectangle(workArea.Right - w, y, w, h);
         }
 
         private static Rectangle ComputeCollapsedStripRect(string edge, Rectangle workArea, Rectangle expRect)
@@ -292,48 +335,103 @@ namespace BooguNoteStandalone
             return new Rectangle(workArea.Right - PEEK_THICKNESS, expRect.Top, PEEK_THICKNESS, expRect.Height);
         }
 
-        private static void ApplyDockCommand(string nextMode, string nextEdge, bool forceExpand)
+        private static void ApplyDockCommand(string nextMode, string nextEdge, string topStr, string action)
         {
             lock (stateLock)
             {
                 IntPtr hWnd = EnsureAppWindowHandle();
+
+                if (action == "open-default-dir")
+                {
+                    try { Process.Start(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)); } catch { }
+                    return;
+                }
+
+                if (action == "quit-app")
+                {
+                    if (hWnd != IntPtr.Zero)
+                    {
+                        SendMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                    }
+                    Environment.Exit(0);
+                    return;
+                }
+
                 if (hWnd == IntPtr.Zero) return;
+
+                if (action == "toggle-hide-window")
+                {
+                    if (isHiddenByCommand)
+                    {
+                        isHiddenByCommand = false;
+                        ShowWindow(hWnd, SW_SHOW);
+                    }
+                    else
+                    {
+                        isHiddenByCommand = true;
+                        ShowWindow(hWnd, SW_HIDE);
+                    }
+                    return;
+                }
 
                 RECT rawRect;
                 GetWindowRect(hWnd, out rawRect);
-                Rectangle curRect = new Rectangle(rawRect.Left, rawRect.Top, rawRect.Right - rawRect.Left, rawRect.Bottom - rawRect.Top);
+                Rectangle curRect = isCollapsed
+                    ? expandedBounds
+                    : new Rectangle(rawRect.Left, rawRect.Top, rawRect.Right - rawRect.Left, rawRect.Bottom - rawRect.Top);
                 Rectangle workArea = Screen.FromHandle(hWnd).WorkingArea;
 
-                if (dockMode == "normal" && nextMode != "normal" && !string.IsNullOrEmpty(nextMode))
+                if (dockMode == "normal" && !string.IsNullOrEmpty(nextMode) && nextMode != "normal")
                 {
                     normalBounds = curRect;
                 }
 
-                if (!string.IsNullOrEmpty(nextMode)) dockMode = nextMode;
-                if (!string.IsNullOrEmpty(nextEdge)) dockEdge = nextEdge;
+                if (!string.IsNullOrEmpty(nextEdge))
+                {
+                    dockEdge = nextEdge;
+                }
+                else if (dockMode == "normal" && !string.IsNullOrEmpty(nextMode) && nextMode != "normal")
+                {
+                    dockEdge = DetectNearestEdge(curRect, workArea);
+                }
+
+                if (!string.IsNullOrEmpty(nextMode))
+                {
+                    dockMode = nextMode;
+                }
+
+                if (!string.IsNullOrEmpty(topStr))
+                {
+                    alwaysOnTop = (topStr == "1" || topStr == "true");
+                }
+                else if (dockMode != "normal")
+                {
+                    alwaysOnTop = true;
+                }
+
+                isCollapsed = false;
+                mouseLeaveTime = DateTime.MinValue;
 
                 if (dockMode == "normal")
                 {
-                    isCollapsed = false;
-                    mouseLeaveTime = DateTime.MinValue;
+                    IntPtr z = alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST;
                     SetWindowPos(
                         hWnd,
-                        HWND_NOTOPMOST,
+                        z,
                         normalBounds.Left,
                         normalBounds.Top,
-                        Math.Max(780, normalBounds.Width),
-                        Math.Max(560, normalBounds.Height),
+                        Math.Max(280, normalBounds.Width),
+                        Math.Max(300, normalBounds.Height),
                         SWP_SHOWWINDOW
                     );
                     return;
                 }
 
-                // docked 或 auto-hide 模式：调整物理窗口为窄栏尺寸并贴边
-                expandedBounds = ComputeDockedExpandedRect(dockEdge, workArea, curRect);
-                isCollapsed = false;
-                mouseLeaveTime = DateTime.MinValue;
+                bool fullSidebar = (dockMode == "docked");
+                if (fullSidebar && dockEdge == "top") dockEdge = "right";
 
-                IntPtr zOrder = (dockMode == "auto-hide" || forceExpand) ? HWND_TOPMOST : HWND_NOTOPMOST;
+                expandedBounds = ComputeSnappedExpandedRect(dockEdge, workArea, curRect, fullSidebar);
+                IntPtr zOrder = (dockMode == "auto-hide" || alwaysOnTop) ? HWND_TOPMOST : HWND_NOTOPMOST;
                 SetWindowPos(
                     hWnd,
                     zOrder,
@@ -356,7 +454,7 @@ namespace BooguNoteStandalone
                     lock (stateLock)
                     {
                         IntPtr hWnd = EnsureAppWindowHandle();
-                        if (hWnd == IntPtr.Zero) continue;
+                        if (hWnd == IntPtr.Zero || isHiddenByCommand) continue;
 
                         RECT r;
                         if (!GetWindowRect(hWnd, out r)) continue;
@@ -365,32 +463,49 @@ namespace BooguNoteStandalone
 
                         bool isMouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-                        // 检测用户拖拽窗口释放时的贴边自动吸附 (Edge Snap)
+                        // 检测用户拖拽窗口释放时的贴边自动隐藏 (Edge Snap) 与拖离边缘恢复
                         if (wasMouseDown && !isMouseDown && !isCollapsed)
                         {
-                            if (Math.Abs(winRect.Top - workArea.Top) <= SNAP_THRESHOLD && winRect.Width < workArea.Width - 60)
+                            bool nearTop = Math.Abs(winRect.Top - workArea.Top) <= SNAP_THRESHOLD && Math.Abs(winRect.Height - workArea.Height) > 30;
+                            bool nearLeft = Math.Abs(winRect.Left - workArea.Left) <= SNAP_THRESHOLD;
+                            bool nearRight = Math.Abs(winRect.Right - workArea.Right) <= SNAP_THRESHOLD;
+
+                            if (nearTop)
                             {
-                                if (dockMode == "normal") normalBounds = winRect;
+                                if (dockMode == "normal") normalBounds = new Rectangle(winRect.Left, workArea.Top + 36, winRect.Width, winRect.Height);
                                 dockEdge = "top";
                                 dockMode = "auto-hide";
-                                expandedBounds = ComputeDockedExpandedRect("top", workArea, winRect);
+                                alwaysOnTop = true;
+                                expandedBounds = ComputeSnappedExpandedRect("top", workArea, winRect, false);
                                 SetWindowPos(hWnd, HWND_TOPMOST, expandedBounds.Left, expandedBounds.Top, expandedBounds.Width, expandedBounds.Height, SWP_SHOWWINDOW);
                             }
-                            else if (Math.Abs(winRect.Right - workArea.Right) <= SNAP_THRESHOLD)
+                            else if (nearLeft)
                             {
-                                if (dockMode == "normal") normalBounds = winRect;
-                                dockEdge = "right";
-                                dockMode = "auto-hide";
-                                expandedBounds = ComputeDockedExpandedRect("right", workArea, winRect);
-                                SetWindowPos(hWnd, HWND_TOPMOST, expandedBounds.Left, expandedBounds.Top, expandedBounds.Width, expandedBounds.Height, SWP_SHOWWINDOW);
-                            }
-                            else if (Math.Abs(winRect.Left - workArea.Left) <= SNAP_THRESHOLD)
-                            {
-                                if (dockMode == "normal") normalBounds = winRect;
+                                if (dockMode == "normal") normalBounds = new Rectangle(workArea.Left + 36, winRect.Top, winRect.Width, winRect.Height);
                                 dockEdge = "left";
                                 dockMode = "auto-hide";
-                                expandedBounds = ComputeDockedExpandedRect("left", workArea, winRect);
+                                alwaysOnTop = true;
+                                expandedBounds = ComputeSnappedExpandedRect("left", workArea, winRect, false);
                                 SetWindowPos(hWnd, HWND_TOPMOST, expandedBounds.Left, expandedBounds.Top, expandedBounds.Width, expandedBounds.Height, SWP_SHOWWINDOW);
+                            }
+                            else if (nearRight)
+                            {
+                                if (dockMode == "normal") normalBounds = new Rectangle(workArea.Right - winRect.Width - 36, winRect.Top, winRect.Width, winRect.Height);
+                                dockEdge = "right";
+                                dockMode = "auto-hide";
+                                alwaysOnTop = true;
+                                expandedBounds = ComputeSnappedExpandedRect("right", workArea, winRect, false);
+                                SetWindowPos(hWnd, HWND_TOPMOST, expandedBounds.Left, expandedBounds.Top, expandedBounds.Width, expandedBounds.Height, SWP_SHOWWINDOW);
+                            }
+                            else if (dockMode != "normal")
+                            {
+                                // 用户把窗口从屏幕边缘拖回屏幕中央：自动解除自动隐藏，恢复为正常窗口
+                                dockMode = "normal";
+                                normalBounds = winRect;
+                            }
+                            else
+                            {
+                                normalBounds = winRect;
                             }
                         }
                         wasMouseDown = isMouseDown;
@@ -427,13 +542,13 @@ namespace BooguNoteStandalone
                         }
                         else
                         {
-                            // 当前处于展开态：同步用户可能微调过的位置并检测鼠标是否离开窗口
-                            expandedBounds = ComputeDockedExpandedRect(dockEdge, workArea, winRect);
+                            // 当前处于展开态：同步用户可能微调过的窄框尺寸并检测鼠标是否离开窗口
+                            expandedBounds = ComputeSnappedExpandedRect(dockEdge, workArea, winRect, false);
                             bool insideWindow =
-                                cursor.X >= winRect.Left - 14 &&
-                                cursor.X <= winRect.Right + 14 &&
-                                cursor.Y >= winRect.Top - 14 &&
-                                cursor.Y <= winRect.Bottom + 14;
+                                cursor.X >= winRect.Left - 12 &&
+                                cursor.X <= winRect.Right + 12 &&
+                                cursor.Y >= winRect.Top - 12 &&
+                                cursor.Y <= winRect.Bottom + 12;
 
                             if (insideWindow)
                             {
@@ -445,7 +560,7 @@ namespace BooguNoteStandalone
                                 {
                                     mouseLeaveTime = DateTime.UtcNow;
                                 }
-                                else if ((DateTime.UtcNow - mouseLeaveTime).TotalMilliseconds >= 380)
+                                else if ((DateTime.UtcNow - mouseLeaveTime).TotalMilliseconds >= 360)
                                 {
                                     isCollapsed = true;
                                     mouseLeaveTime = DateTime.MinValue;

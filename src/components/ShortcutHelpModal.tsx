@@ -54,7 +54,7 @@ export const ShortcutHelpModal: React.FC<ShortcutHelpModalProps> = ({
       <div className="bn-modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="bn-modal-header">
           <div className="bn-modal-title">
-            <Keyboard size={18} /> BooguNote 快捷键与视图设置
+            <Keyboard size={18} /> 选项与快捷键设置 (Ctrl + Alt + P)
           </div>
           <button type="button" className="bn-icon-btn" onClick={onClose}>
             <X size={18} />
@@ -65,8 +65,86 @@ export const ShortcutHelpModal: React.FC<ShortcutHelpModalProps> = ({
           {/* 视图参数调节 */}
           <div className="bn-settings-panel">
             <div className="bn-settings-title">
-              <Sliders size={15} /> 文字块尺寸与视图偏好
+              <Sliders size={15} /> 外观主题、界面栏位与文字块尺寸
             </div>
+
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 12,
+                marginBottom: 12,
+                fontSize: 12.5,
+              }}
+            >
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span>外观主题：</span>
+                <select
+                  value={config.theme}
+                  onChange={(e) =>
+                    onUpdateConfig({
+                      theme: e.target.value as AppConfig['theme'],
+                    })
+                  }
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    border: '1px solid var(--bn-border-color)',
+                    backgroundColor: 'var(--bn-card-bg)',
+                    color: 'var(--bn-text-main)',
+                  }}
+                >
+                  <option value="classic">经典复古 (Classic Boogu)</option>
+                  <option value="modern-light">现代明亮 (Modern Light)</option>
+                  <option value="modern-dark">极客深色 (Modern Dark)</option>
+                </select>
+              </label>
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={config.showToolbar}
+                  onChange={(e) =>
+                    onUpdateConfig({ showToolbar: e.target.checked })
+                  }
+                />
+                <span>显示顶部工具栏</span>
+              </label>
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={config.showBottomBar}
+                  onChange={(e) =>
+                    onUpdateConfig({ showBottomBar: e.target.checked })
+                  }
+                />
+                <span>显示底部功能按钮</span>
+              </label>
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={config.showStatusBar}
+                  onChange={(e) =>
+                    onUpdateConfig({ showStatusBar: e.target.checked })
+                  }
+                />
+                <span>显示底部状态栏</span>
+              </label>
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={config.closedBlockCard}
+                  onChange={(e) =>
+                    onUpdateConfig({ closedBlockCard: e.target.checked })
+                  }
+                />
+                <span>闭合卡片边框</span>
+              </label>
+            </div>
+
             <div className="bn-settings-grid">
               <label className="bn-setting-field">
                 <span>窄块宽度 ({config.narrowWidth}px)</span>
@@ -113,7 +191,7 @@ export const ShortcutHelpModal: React.FC<ShortcutHelpModalProps> = ({
                   type="range"
                   min={12}
                   max={20}
-                  step={1}
+                  step={0.5}
                   value={config.fontSize}
                   onChange={(e) =>
                     onUpdateConfig({ fontSize: Number(e.target.value) })
@@ -144,4 +222,3 @@ export const ShortcutHelpModal: React.FC<ShortcutHelpModalProps> = ({
     </div>
   );
 };
-

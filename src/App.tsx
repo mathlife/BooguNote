@@ -12,11 +12,6 @@ import {
   ChevronsUpDown,
   Columns,
   Bold,
-  PanelRight,
-  PanelTop,
-  PanelLeft,
-  Pin,
-  PinOff,
   Keyboard,
   Sun,
   Moon,
@@ -26,6 +21,7 @@ import {
   RotateCcw,
   Cloud,
   Square,
+  ChevronDown,
 } from 'lucide-react';
 import {
   OutlineNode,
@@ -72,9 +68,10 @@ import { ShortcutHelpModal } from './components/ShortcutHelpModal';
 import { SourcePreviewModal } from './components/SourcePreviewModal';
 import { CloudSyncModal } from './components/CloudSyncModal';
 import { MobileActionDock } from './components/MobileActionDock';
+import { MainMenuDropdown } from './components/MainMenuDropdown';
 
 const STORAGE_KEY_TABS = 'boogunote_next_tabs_v2';
-const STORAGE_KEY_CONFIG = 'boogunote_next_config_v3';
+const STORAGE_KEY_CONFIG = 'boogunote_next_config_v4';
 const STORAGE_KEY_SYNC = 'boogunote_next_sync_v1';
 
 // 构建默认初始标签页（现代指南.md + 原版教程.boo）
@@ -106,16 +103,21 @@ function createInitialTabs(): DocTab[] {
   ];
 }
 
+// 默认采用经典窄边框外观，默认隐藏顶部菜单工具栏、底部功能按钮与状态栏
 const DEFAULT_CONFIG: AppConfig = {
-  theme: 'modern-light',
+  theme: 'classic',
   showAllBranches: true,
   closedBlockCard: true,
-  narrowWidth: 340,
-  wideWidth: 700,
-  indentSize: 28,
-  fontSize: 14,
+  narrowWidth: 310,
+  wideWidth: 620,
+  indentSize: 24,
+  fontSize: 13.5,
   dockMode: 'normal',
   dockEdge: 'right',
+  alwaysOnTop: false,
+  showToolbar: false,
+  showBottomBar: false,
+  showStatusBar: false,
 };
 
 const DEFAULT_SYNC_CONFIG: CloudSyncConfig = {
@@ -140,7 +142,7 @@ export const App: React.FC = () => {
         return {
           ...DEFAULT_CONFIG,
           ...parsed,
-          dockMode: 'normal', // 每次启动以标准窗口初始化，避免误锁状态
+          dockMode: 'normal',
         };
       }
     } catch {
@@ -151,6 +153,11 @@ export const App: React.FC = () => {
 
   // 当前窗口是否正处于靠边自动隐藏的收起感应条状态
   const [isCollapsedEdge, setIsCollapsedEdge] = useState(false);
+
+  // 右上角主菜单下拉状态与辅助弹窗状态
+  const [mainMenuOpen, setMainMenuOpen] = useState(false);
+  const [docListModalOpen, setDocListModalOpen] = useState(false);
+  const [aboutModalOpen, setAboutModalOpen] = useState(false);
 
   // 加载云同步配置
   const [syncConfig, setSyncConfig] = useState<CloudSyncConfig>(() => {
@@ -200,14 +207,19 @@ export const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 订阅原生桌面窗口因拖拽贴边或快捷键引发的停靠状态变更
+  // 订阅原生桌面窗口因拖拽到屏幕边缘或快捷键引发的停靠与置顶状态变更
   useEffect(() => {
     const unsubscribe = subscribeNativeDockState((nativeState) => {
       setIsCollapsedEdge(Boolean(nativeState.isCollapsed));
       setConfig((prev) => {
+        const nextTop =
+          nativeState.alwaysOnTop !== undefined
+            ? nativeState.alwaysOnTop
+            : prev.alwaysOnTop;
         if (
           prev.dockMode === nativeState.mode &&
-          prev.dockEdge === nativeState.edge
+          prev.dockEdge === nativeState.edge &&
+          prev.alwaysOnTop === nextTop
         ) {
           return prev;
         }
@@ -215,29 +227,43 @@ export const App: React.FC = () => {
           ...prev,
           dockMode: nativeState.mode,
           dockEdge: nativeState.edge,
+          alwaysOnTop: nextTop,
         };
       });
     });
     return unsubscribe;
   }, []);
 
-  // 切换窗口停靠模式（调用原生宿主调整真实物理窗口尺寸与位置）
+  // 切换窗口停靠模式（正常窗口 / 靠边窗口 / 自动隐藏窗口）
   const handleChangeDockState = useCallback(
     async (nextMode: WindowDockMode, nextEdge?: WindowDockEdge) => {
       const edge = nextEdge || config.dockEdge || 'right';
+      const nextTop = nextMode !== 'normal' ? true : config.alwaysOnTop;
       setConfig((prev) => ({
         ...prev,
         dockMode: nextMode,
         dockEdge: edge,
+        alwaysOnTop: nextTop,
       }));
       await setNativeWindowDock({
         mode: nextMode,
         edge,
-        alwaysOnTop: nextMode !== 'normal',
+        alwaysOnTop: nextTop,
       });
     },
-    [config.dockEdge]
+    [config.dockEdge, config.alwaysOnTop]
   );
+
+  // 切换窗口置顶
+  const handleToggleAlwaysOnTop = useCallback(async () => {
+    const nextTop = !config.alwaysOnTop;
+    setConfig((prev) => ({ ...prev, alwaysOnTop: nextTop }));
+    await setNativeWindowDock({
+      mode: config.dockMode,
+      edge: config.dockEdge,
+      alwaysOnTop: nextTop,
+    });
+  }, [config.alwaysOnTop, config.dockMode, config.dockEdge]);
 
   // 持久化配置、同步设置与标签页
   useEffect(() => {
@@ -706,9 +732,203 @@ export const App: React.FC = () => {
     [activeTab?.nodes, handleFocusNode]
   );
 
-  // 全局键盘快捷键监听
+  // 新建空白 Markdown 文档标签页
+  const handleNewTab = useCallback(() => {
+    const firstNode = createEmptyNode({ content: '' });
+    const newTab: DocTab = {
+      id: 'tab_' + generateNodeId(),
+      title: `未命名笔记_${tabs.length + 1}.md`,
+      nodes: [firstNode],
+      focusedId: firstNode.id,
+      selectedIds: [],
+      isDirty: false,
+      undoStack: [],
+      redoStack: [],
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }, [tabs.length]);
+
+  // 关闭指定或当前标签页
+  const handleCloseTabById = useCallback(
+    (tabId: string, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      if (tabs.length <= 1) {
+        const empty = createEmptyNode();
+        const fallbackTab: DocTab = {
+          id: 'tab_' + generateNodeId(),
+          title: '未命名笔记.md',
+          nodes: [empty],
+          focusedId: empty.id,
+          selectedIds: [],
+          isDirty: false,
+          undoStack: [],
+          redoStack: [],
+        };
+        setTabs([fallbackTab]);
+        setActiveTabId(fallbackTab.id);
+        return;
+      }
+      const nextTabs = tabs.filter((t) => t.id !== tabId);
+      setTabs(nextTabs);
+      if (activeTabId === tabId) {
+        setActiveTabId(nextTabs[nextTabs.length - 1].id);
+      }
+    },
+    [tabs, activeTabId]
+  );
+
+  // 关闭所有文档
+  const handleCloseAllTabs = useCallback(() => {
+    const empty = createEmptyNode();
+    const freshTab: DocTab = {
+      id: 'tab_' + generateNodeId(),
+      title: '未命名笔记.md',
+      nodes: [empty],
+      focusedId: empty.id,
+      selectedIds: [],
+      isDirty: false,
+      undoStack: [],
+      redoStack: [],
+    };
+    setTabs([freshTab]);
+    setActiveTabId(freshTab.id);
+  }, []);
+
+  // 切换上个/下个文档标签页
+  const handleCycleTab = useCallback(
+    (dir: -1 | 1) => {
+      if (tabs.length <= 1) return;
+      const idx = tabs.findIndex((t) => t.id === activeTab.id);
+      const nextIdx = (idx + dir + tabs.length) % tabs.length;
+      setActiveTabId(tabs[nextIdx].id);
+    },
+    [tabs, activeTab?.id]
+  );
+
+  // 导出下载单个标签页文件
+  const downloadTabAsFile = useCallback(
+    (tab: DocTab, format: 'md' | 'boo', customBaseName?: string) => {
+      const baseName =
+        customBaseName || tab.title.replace(/\.(md|markdown|boo|txt)$/i, '');
+      const content =
+        format === 'md'
+          ? exportToMarkdown(tab.nodes, true)
+          : exportToBooXml(tab.nodes);
+      const ext = format === 'md' ? '.md' : '.boo';
+      const mime =
+        format === 'md'
+          ? 'text/markdown;charset=utf-8'
+          : 'application/xml;charset=utf-8';
+
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${baseName}${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    []
+  );
+
+  const handleDownloadFile = useCallback(
+    (format: 'md' | 'boo') => {
+      downloadTabAsFile(activeTab, format);
+      updateActiveTab((tab) => ({ ...tab, isDirty: false }));
+    },
+    [activeTab, downloadTabAsFile, updateActiveTab]
+  );
+
+  // 保存当前文档 (Ctrl+S)
+  const handleSaveCurrentDoc = useCallback(() => {
+    const isBoo = activeTab.title.toLowerCase().endsWith('.boo');
+    handleDownloadFile(isBoo ? 'boo' : 'md');
+  }, [activeTab?.title, handleDownloadFile]);
+
+  // 另存当前文档 (Ctrl+Shift+S)
+  const handleSaveAsCurrentDoc = useCallback(() => {
+    const nextName = prompt(
+      '另存文档文件名（以 .boo 结尾则导出为原版 XML 格式，否则保存为 .md）：',
+      activeTab.title
+    );
+    if (!nextName || !nextName.trim()) return;
+    const trimmed = nextName.trim();
+    const isBoo = trimmed.toLowerCase().endsWith('.boo');
+    const base = trimmed.replace(/\.(md|markdown|boo|txt)$/i, '');
+    downloadTabAsFile(activeTab, isBoo ? 'boo' : 'md', base);
+    updateActiveTab((tab) => ({
+      ...tab,
+      title: `${base}${isBoo ? '.boo' : '.md'}`,
+      isDirty: false,
+    }));
+  }, [activeTab, downloadTabAsFile, updateActiveTab]);
+
+  // 保存所有文档
+  const handleSaveAllDocs = useCallback(() => {
+    tabs.forEach((t) => {
+      const isBoo = t.title.toLowerCase().endsWith('.boo');
+      downloadTabAsFile(t, isBoo ? 'boo' : 'md');
+    });
+    setTabs((prev) => prev.map((t) => ({ ...t, isDirty: false })));
+  }, [tabs, downloadTabAsFile]);
+
+  // 全局键盘快捷键监听（含原版主菜单全部快捷键）
   useEffect(() => {
     const onGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+N 新建文档
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleNewTab();
+        return;
+      }
+      // Ctrl+O 打开文档
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        fileInputRef.current?.click();
+        return;
+      }
+      // Ctrl+W 关闭当前文档
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        handleCloseTabById(activeTab.id);
+        return;
+      }
+      // Ctrl+S 保存文档 / Ctrl+Shift+S 另存文档
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleSaveAsCurrentDoc();
+        } else {
+          handleSaveCurrentDoc();
+        }
+        return;
+      }
+      // F5 文件管理与云同步窗口
+      if (e.key === 'F5') {
+        e.preventDefault();
+        setSyncModalOpen((v) => !v);
+        return;
+      }
+      // F4 显示文档列表
+      if (e.key === 'F4') {
+        e.preventDefault();
+        setDocListModalOpen((v) => !v);
+        return;
+      }
+      // Ctrl+Tab / Ctrl+Shift+Tab 切换上个/下个文档
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        handleCycleTab(e.shiftKey ? -1 : 1);
+        return;
+      }
+      // Ctrl+Alt+P 打开选项设置
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setHelpModalOpen((v) => !v);
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         handleUndo();
@@ -731,8 +951,20 @@ export const App: React.FC = () => {
       }
 
       if (e.key === 'Escape') {
+        if (mainMenuOpen) {
+          setMainMenuOpen(false);
+          return;
+        }
         if (contextMenu) {
           setContextMenu(null);
+          return;
+        }
+        if (docListModalOpen) {
+          setDocListModalOpen(false);
+          return;
+        }
+        if (aboutModalOpen) {
+          setAboutModalOpen(false);
           return;
         }
         if (helpModalOpen) {
@@ -808,11 +1040,19 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', onGlobalKeyDown);
   }, [
     activeTab,
+    mainMenuOpen,
     contextMenu,
+    docListModalOpen,
+    aboutModalOpen,
     helpModalOpen,
     sourceModalOpen,
     syncModalOpen,
     searchOpen,
+    handleNewTab,
+    handleCloseTabById,
+    handleSaveCurrentDoc,
+    handleSaveAsCurrentDoc,
+    handleCycleTab,
     handleUndo,
     handleRedo,
     handleDeleteNode,
@@ -847,49 +1087,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // 新建空白 Markdown 文档标签页
-  const handleNewTab = () => {
-    const firstNode = createEmptyNode({ content: '' });
-    const newTab: DocTab = {
-      id: 'tab_' + generateNodeId(),
-      title: `未命名笔记_${tabs.length + 1}.md`,
-      nodes: [firstNode],
-      focusedId: firstNode.id,
-      selectedIds: [],
-      isDirty: false,
-      undoStack: [],
-      redoStack: [],
-    };
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-  };
-
-  // 关闭标签页
-  const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (tabs.length <= 1) {
-      const empty = createEmptyNode();
-      setTabs([
-        {
-          id: 'tab_' + generateNodeId(),
-          title: '未命名笔记.md',
-          nodes: [empty],
-          focusedId: empty.id,
-          selectedIds: [],
-          isDirty: false,
-          undoStack: [],
-          redoStack: [],
-        },
-      ]);
-      return;
-    }
-    const nextTabs = tabs.filter((t) => t.id !== tabId);
-    setTabs(nextTabs);
-    if (activeTabId === tabId) {
-      setActiveTabId(nextTabs[nextTabs.length - 1].id);
-    }
-  };
-
   // 导入本地文件（智能识别 .boo XML 或 .md Markdown）
   const importFileObject = async (file: File) => {
     const text = await file.text();
@@ -918,30 +1115,6 @@ export const App: React.FC = () => {
     } catch (err: any) {
       alert(`导入文件 "${file.name}" 失败：${err?.message || '未知错误'}`);
     }
-  };
-
-  // 导出下载文件
-  const handleDownloadFile = (format: 'md' | 'boo') => {
-    const baseName = activeTab.title.replace(/\.(md|markdown|boo|txt)$/i, '');
-    const content =
-      format === 'md'
-        ? exportToMarkdown(activeTab.nodes, true)
-        : exportToBooXml(activeTab.nodes);
-    const ext = format === 'md' ? '.md' : '.boo';
-    const mime =
-      format === 'md'
-        ? 'text/markdown;charset=utf-8'
-        : 'application/xml;charset=utf-8';
-
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${baseName}${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    updateActiveTab((tab) => ({ ...tab, isDirty: false }));
   };
 
   // 重置演示文档
@@ -973,7 +1146,7 @@ export const App: React.FC = () => {
     return (
       <div
         className={`bn-edge-sensor-strip edge-${config.dockEdge}`}
-        title="BooguNote 靠边隐藏中 - 鼠标移入自动滑出显示窗口"
+        title="BooguNote 靠边自动隐藏中 - 鼠标移入自动下拉/滑出显示窗口主体"
       />
     );
   }
@@ -1007,17 +1180,11 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* 顶部标题栏与文档多标签页 */}
+      {/* 顶部紧凑标签栏与右上角经典下拉主菜单按钮 */}
       <header className="bn-header">
         <div className="bn-brand-bar">
-          <div className="bn-logo-badge">
+          <div className="bn-logo-badge" title="BooguNote 树形大纲笔记">
             <span className="bn-logo-square">B</span>
-            <span className="bn-logo-text">BooguNote</span>
-            {config.dockMode !== 'normal' && (
-              <span className="bn-version-pill">
-                {config.dockMode === 'auto-hide' ? '靠边自动隐藏' : '靠边停靠'}
-              </span>
-            )}
           </div>
 
           {/* 文档标签栏 */}
@@ -1043,7 +1210,7 @@ export const App: React.FC = () => {
                     }
                   }}
                 >
-                  <FileText size={13} className="bn-tab-icon" />
+                  <FileText size={12} className="bn-tab-icon" />
                   <span className="bn-tab-title">
                     {tab.title}
                     {tab.isDirty ? ' *' : ''}
@@ -1052,10 +1219,10 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     className="bn-tab-close"
-                    title="关闭标签页"
-                    onClick={(e) => handleCloseTab(tab.id, e)}
+                    title="关闭文档 (Ctrl+W)"
+                    onClick={(e) => handleCloseTabById(tab.id, e)}
                   >
-                    <X size={12} />
+                    <X size={11} />
                   </button>
                 </div>
               );
@@ -1064,325 +1231,314 @@ export const App: React.FC = () => {
             <button
               type="button"
               className="bn-tab-add-btn"
-              title="新建 Markdown 大纲笔记"
+              title="新建文档 (Ctrl+N)"
               onClick={handleNewTab}
             >
-              <Plus size={15} />
-            </button>
-          </div>
-        </div>
-
-        {/* 快捷操作工具栏 */}
-        <div className="bn-toolbar">
-          <div className="bn-toolbar-group">
-            <button
-              type="button"
-              className="bn-toolbar-btn"
-              title="导入 .md 或旧版 .boo 文件"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FolderOpen size={14} />
-              <span>打开</span>
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-btn primary"
-              title="保存为标准 Markdown 文件 (.md)"
-              onClick={() => handleDownloadFile('md')}
-            >
-              <Download size={14} />
-              <span>保存 .md</span>
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-btn"
-              title="导出为兼容原版 BooguNote 的 .boo 文件"
-              onClick={() => handleDownloadFile('boo')}
-            >
-              <Download size={14} />
-              <span>导出 .boo</span>
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-btn sync-highlight"
-              title="绑定 GitHub 私人仓库或 Dropbox 网盘进行多端同步"
-              onClick={() => setSyncModalOpen(true)}
-            >
-              <Cloud size={14} />
-              <span>云同步</span>
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-btn"
-              title="实时查看/转换 Markdown 与 .boo XML 源码"
-              onClick={() => setSourceModalOpen(true)}
-            >
-              <FileCode size={14} />
-              <span>源码</span>
+              <Plus size={14} />
             </button>
           </div>
 
-          <div className="bn-toolbar-sep" />
-
-          {/* 撤销重做与节点视觉控制 */}
-          <div className="bn-toolbar-group">
+          {/* 右上角经典下拉主菜单按钮 */}
+          <div className="bn-top-right-menu-wrap">
             <button
               type="button"
-              className="bn-toolbar-icon-btn"
-              disabled={activeTab.undoStack.length === 0}
-              title={`撤销 (Ctrl+Z) - 可撤销 ${activeTab.undoStack.length} 步`}
-              onClick={handleUndo}
+              className={`bn-main-menu-trigger ${mainMenuOpen ? 'active' : ''}`}
+              title="打开 BooguNote 主菜单（文档、窗口模式、显示/隐藏工具栏、选项）"
+              onClick={() => setMainMenuOpen((v) => !v)}
             >
-              <Undo2 size={15} />
-            </button>
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              disabled={activeTab.redoStack.length === 0}
-              title={`重做 (Ctrl+Y) - 可重做 ${activeTab.redoStack.length} 步`}
-              onClick={handleRedo}
-            >
-              <Redo2 size={15} />
+              <ChevronDown size={15} />
             </button>
 
-            <button
-              type="button"
-              className={`bn-toolbar-icon-btn ${
-                config.closedBlockCard ? 'active' : ''
-              }`}
-              title="切换【闭合卡片边框】与【无框极简模式】"
-              onClick={() =>
-                setConfig((prev) => ({
-                  ...prev,
-                  closedBlockCard: !prev.closedBlockCard,
-                }))
-              }
-            >
-              <Square size={15} />
-            </button>
-
-            <button
-              type="button"
-              className={`bn-toolbar-icon-btn ${
-                config.showAllBranches ? 'active' : ''
-              }`}
-              title="全局显示所有父子闭合树枝连接线"
-              onClick={() =>
-                setConfig((prev) => ({
-                  ...prev,
-                  showAllBranches: !prev.showAllBranches,
-                }))
-              }
-            >
-              <GitBranch size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              title="切换当前文字块宽度：窄块 -> 宽块 -> 单行收缩 (Ctrl+U)"
-              onClick={() => handleCycleBlockWidth()}
-            >
-              <Columns size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              title="切换文字块粗体 (Ctrl+B)"
-              onClick={() => handleToggleBold()}
-            >
-              <Bold size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              title="展开全部节点"
-              onClick={() =>
-                updateActiveTab(
-                  (tab) => ({
-                    ...tab,
-                    nodes: setAllCollapsed(tab.nodes, false),
-                  }),
-                  true
-                )
-              }
-            >
-              <ChevronsUpDown size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              title="折叠全部父节点"
-              onClick={() =>
-                updateActiveTab(
-                  (tab) => ({
-                    ...tab,
-                    nodes: setAllCollapsed(tab.nodes, true),
-                  }),
-                  true
-                )
-              }
-            >
-              <ChevronsDownUp size={15} />
-            </button>
-          </div>
-
-          <div className="bn-toolbar-sep" />
-
-          {/* 原生桌面靠边停靠、自动吸附隐藏、主题与设置控制 */}
-          <div className="bn-toolbar-group">
-            {/* 1. 靠边窄框停靠开关 (物理调整窗口大小并贴边) */}
-            <button
-              type="button"
-              className={`bn-toolbar-btn ${
-                config.dockMode !== 'normal' ? 'active-dock' : ''
-              }`}
-              title="切换【靠边窄框停靠模式 (Alt+Shift+O)】与【标准大窗口模式】—— 自动调整程序物理窗口尺寸"
-              onClick={() => {
-                if (config.dockMode === 'normal') {
-                  handleChangeDockState('docked', config.dockEdge || 'right');
-                } else {
-                  handleChangeDockState('normal');
+            {mainMenuOpen && (
+              <MainMenuDropdown
+                config={config}
+                searchOpen={searchOpen}
+                onClose={() => setMainMenuOpen(false)}
+                onNewDoc={handleNewTab}
+                onOpenDoc={() => fileInputRef.current?.click()}
+                onCloseDoc={() => handleCloseTabById(activeTab.id)}
+                onSaveDoc={handleSaveCurrentDoc}
+                onSaveAsDoc={handleSaveAsCurrentDoc}
+                onSaveAllDocs={handleSaveAllDocs}
+                onCloseAllDocs={handleCloseAllTabs}
+                onOpenDefaultDir={() =>
+                  setNativeWindowDock({ action: 'open-default-dir' })
                 }
-              }}
-            >
-              <PanelRight size={14} />
-              <span>{config.dockMode === 'normal' ? '靠边停靠' : '退出靠边'}</span>
-            </button>
-
-            {/* 2. 靠边自动吸附隐藏开关 (鼠标移开自动收起，移到边缘自动下拉/滑出) */}
-            <button
-              type="button"
-              className={`bn-toolbar-btn ${
-                config.dockMode === 'auto-hide' ? 'primary' : ''
-              }`}
-              title="开启/关闭【靠边自动吸附隐藏 (Alt+Shift+H)】：鼠标移出窗口自动缩回屏幕边缘，鼠标移到边缘自动下拉/滑出显示窗口主体（也可直接将窗口拖到屏幕顶边/右边自动触发）"
-              onClick={() => {
-                if (config.dockMode !== 'auto-hide') {
-                  handleChangeDockState('auto-hide', config.dockEdge || 'right');
-                } else {
-                  handleChangeDockState('docked', config.dockEdge || 'right');
+                onOpenFileManager={() => setSyncModalOpen(true)}
+                onShowDocList={() => setDocListModalOpen(true)}
+                onPrevDoc={() => handleCycleTab(-1)}
+                onNextDoc={() => handleCycleTab(1)}
+                onToggleSearch={() => {
+                  setSearchOpen((v) => {
+                    const next = !v;
+                    if (next) {
+                      setTimeout(() => searchInputRef.current?.focus(), 50);
+                    } else {
+                      setSearchQuery('');
+                    }
+                    return next;
+                  });
+                }}
+                onSetDockMode={(mode) => handleChangeDockState(mode)}
+                onToggleHideWindow={() =>
+                  setNativeWindowDock({ action: 'toggle-hide-window' })
                 }
-              }}
-            >
-              {config.dockMode === 'auto-hide' ? (
-                <PinOff size={14} />
-              ) : (
-                <Pin size={14} />
-              )}
-              <span>
-                {config.dockMode === 'auto-hide' ? '已自动隐藏' : '自动隐藏'}
-              </span>
-            </button>
-
-            {/* 3. 当处于靠边或自动隐藏模式时，可一键切换停靠方位：顶部下拉 / 右侧滑出 / 左侧滑出 */}
-            {config.dockMode !== 'normal' && (
-              <div className="bn-dock-edge-switcher">
-                <button
-                  type="button"
-                  className={`bn-toolbar-icon-btn ${
-                    config.dockEdge === 'top' ? 'active' : ''
-                  }`}
-                  title="停靠在屏幕【顶部】（鼠标移至屏幕顶边自动下拉显示窗口）"
-                  onClick={() => handleChangeDockState(config.dockMode, 'top')}
-                >
-                  <PanelTop size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={`bn-toolbar-icon-btn ${
-                    config.dockEdge === 'right' ? 'active' : ''
-                  }`}
-                  title="停靠在屏幕【右侧】（鼠标移至屏幕右边自动滑出显示窗口）"
-                  onClick={() =>
-                    handleChangeDockState(config.dockMode, 'right')
-                  }
-                >
-                  <PanelRight size={14} />
-                </button>
-                <button
-                  type="button"
-                  className={`bn-toolbar-icon-btn ${
-                    config.dockEdge === 'left' ? 'active' : ''
-                  }`}
-                  title="停靠在屏幕【左侧】（鼠标移至屏幕左边自动滑出显示窗口）"
-                  onClick={() => handleChangeDockState(config.dockMode, 'left')}
-                >
-                  <PanelLeft size={14} />
-                </button>
-              </div>
+                onToggleAlwaysOnTop={handleToggleAlwaysOnTop}
+                onToggleToolbar={() =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    showToolbar: !prev.showToolbar,
+                  }))
+                }
+                onToggleBottomBar={() =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    showBottomBar: !prev.showBottomBar,
+                  }))
+                }
+                onToggleStatusBar={() =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    showStatusBar: !prev.showStatusBar,
+                  }))
+                }
+                onOpenOptions={() => setHelpModalOpen(true)}
+                onOpenAbout={() => setAboutModalOpen(true)}
+                onQuitApp={() => {
+                  setNativeWindowDock({ action: 'quit-app' });
+                  window.close();
+                }}
+              />
             )}
-
-            <button
-              type="button"
-              className={`bn-toolbar-icon-btn ${searchOpen ? 'active' : ''}`}
-              title="在当前文档中查找 (Ctrl+F / F3)"
-              onClick={() => {
-                setSearchOpen((v) => !v);
-                setTimeout(() => searchInputRef.current?.focus(), 50);
-              }}
-            >
-              <Search size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              title={`切换主题 (当前: ${
-                config.theme === 'classic'
-                  ? '经典复古蓝'
-                  : config.theme === 'modern-light'
-                  ? '现代明亮'
-                  : '极客深色'
-              })`}
-              onClick={() =>
-                setConfig((prev) => ({
-                  ...prev,
-                  theme:
-                    prev.theme === 'classic'
-                      ? 'modern-light'
-                      : prev.theme === 'modern-light'
-                      ? 'modern-dark'
-                      : 'classic',
-                }))
-              }
-            >
-              {config.theme === 'modern-dark' ? (
-                <Moon size={15} />
-              ) : config.theme === 'modern-light' ? (
-                <Sun size={15} />
-              ) : (
-                <Sparkles size={15} />
-              )}
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-icon-btn"
-              title="重置内置教程与演示文档"
-              onClick={handleResetDemo}
-            >
-              <RotateCcw size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="bn-toolbar-btn"
-              title="查看快捷键指南与块宽度设置"
-              onClick={() => setHelpModalOpen(true)}
-            >
-              <Keyboard size={14} />
-              <span>设置</span>
-            </button>
           </div>
         </div>
+
+        {/* 快捷操作工具栏（默认隐藏，可通过右上角下拉菜单勾选【显示顶部工具栏】开启） */}
+        {config.showToolbar && (
+          <div className="bn-toolbar">
+            <div className="bn-toolbar-group">
+              <button
+                type="button"
+                className="bn-toolbar-btn"
+                title="导入 .md 或旧版 .boo 文件 (Ctrl+O)"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <FolderOpen size={13} />
+                <span>打开</span>
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-btn primary"
+                title="保存为标准 Markdown 文件 (.md) (Ctrl+S)"
+                onClick={() => handleDownloadFile('md')}
+              >
+                <Download size={13} />
+                <span>保存 .md</span>
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-btn"
+                title="导出为兼容原版 BooguNote 的 .boo 文件"
+                onClick={() => handleDownloadFile('boo')}
+              >
+                <Download size={13} />
+                <span>导出 .boo</span>
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-btn sync-highlight"
+                title="文件管理与多端云同步 (F5)"
+                onClick={() => setSyncModalOpen(true)}
+              >
+                <Cloud size={13} />
+                <span>云同步</span>
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-btn"
+                title="实时查看/转换 Markdown 与 .boo XML 源码"
+                onClick={() => setSourceModalOpen(true)}
+              >
+                <FileCode size={13} />
+                <span>源码</span>
+              </button>
+            </div>
+
+            <div className="bn-toolbar-sep" />
+
+            {/* 撤销重做与节点视觉控制 */}
+            <div className="bn-toolbar-group">
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                disabled={activeTab.undoStack.length === 0}
+                title={`撤销 (Ctrl+Z) - 可撤销 ${activeTab.undoStack.length} 步`}
+                onClick={handleUndo}
+              >
+                <Undo2 size={14} />
+              </button>
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                disabled={activeTab.redoStack.length === 0}
+                title={`重做 (Ctrl+Y) - 可重做 ${activeTab.redoStack.length} 步`}
+                onClick={handleRedo}
+              >
+                <Redo2 size={14} />
+              </button>
+
+              <button
+                type="button"
+                className={`bn-toolbar-icon-btn ${
+                  config.closedBlockCard ? 'active' : ''
+                }`}
+                title="切换【闭合卡片边框】与【无框极简模式】"
+                onClick={() =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    closedBlockCard: !prev.closedBlockCard,
+                  }))
+                }
+              >
+                <Square size={14} />
+              </button>
+
+              <button
+                type="button"
+                className={`bn-toolbar-icon-btn ${
+                  config.showAllBranches ? 'active' : ''
+                }`}
+                title="全局显示所有父子闭合树枝连接线"
+                onClick={() =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    showAllBranches: !prev.showAllBranches,
+                  }))
+                }
+              >
+                <GitBranch size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                title="切换当前文字块宽度：窄块 -> 宽块 -> 单行收缩 (Ctrl+U)"
+                onClick={() => handleCycleBlockWidth()}
+              >
+                <Columns size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                title="切换文字块粗体 (Ctrl+B)"
+                onClick={() => handleToggleBold()}
+              >
+                <Bold size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                title="展开全部节点"
+                onClick={() =>
+                  updateActiveTab(
+                    (tab) => ({
+                      ...tab,
+                      nodes: setAllCollapsed(tab.nodes, false),
+                    }),
+                    true
+                  )
+                }
+              >
+                <ChevronsUpDown size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                title="折叠全部父节点"
+                onClick={() =>
+                  updateActiveTab(
+                    (tab) => ({
+                      ...tab,
+                      nodes: setAllCollapsed(tab.nodes, true),
+                    }),
+                    true
+                  )
+                }
+              >
+                <ChevronsDownUp size={14} />
+              </button>
+
+              <button
+                type="button"
+                className={`bn-toolbar-icon-btn ${searchOpen ? 'active' : ''}`}
+                title="在当前文档中查找 (Ctrl+F / F3)"
+                onClick={() => {
+                  setSearchOpen((v) => !v);
+                  setTimeout(() => searchInputRef.current?.focus(), 50);
+                }}
+              >
+                <Search size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                title={`切换主题 (当前: ${
+                  config.theme === 'classic'
+                    ? '经典复古蓝'
+                    : config.theme === 'modern-light'
+                    ? '现代明亮'
+                    : '极客深色'
+                })`}
+                onClick={() =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    theme:
+                      prev.theme === 'classic'
+                        ? 'modern-light'
+                        : prev.theme === 'modern-light'
+                        ? 'modern-dark'
+                        : 'classic',
+                  }))
+                }
+              >
+                {config.theme === 'modern-dark' ? (
+                  <Moon size={14} />
+                ) : config.theme === 'modern-light' ? (
+                  <Sun size={14} />
+                ) : (
+                  <Sparkles size={14} />
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-icon-btn"
+                title="重置内置教程与演示文档"
+                onClick={handleResetDemo}
+              >
+                <RotateCcw size={14} />
+              </button>
+
+              <button
+                type="button"
+                className="bn-toolbar-btn"
+                title="打开选项与快捷键设置 (Ctrl+Alt+P)"
+                onClick={() => setHelpModalOpen(true)}
+              >
+                <Keyboard size={13} />
+                <span>选项</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 实时搜索栏 (Ctrl+F / F3) */}
         {searchOpen && (
@@ -1398,7 +1554,7 @@ export const App: React.FC = () => {
             />
             {searchQuery.trim() && (
               <span className="bn-search-count">
-                找到 {searchMatchCount} 个匹配文字块
+                {searchMatchCount} 项
               </span>
             )}
             <button
@@ -1471,51 +1627,49 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {/* 移动端 (Android / iOS) 与触屏专属悬浮快捷操作坞 */}
-      <MobileActionDock
-        visible={hasActiveTarget}
-        onInsertSibling={() => handleInsertSiblingAfter()}
-        onInsertChild={() => handleInsertChild()}
-        onOutdent={() => handleOutdent()}
-        onIndent={() => handleIndent()}
-        onMoveUp={() => handleMoveUp()}
-        onMoveDown={() => handleMoveDown()}
-        onCycleWidth={() => handleCycleBlockWidth()}
-        onCycleIcon={() => handleCycleIcon(undefined, 1)}
-        onDelete={() => handleDeleteNode()}
-      />
+      {/* 底部快捷功能按钮栏（默认隐藏，可通过右上角下拉菜单勾选【显示底部功能按钮】开启） */}
+      {config.showBottomBar && (
+        <MobileActionDock
+          visible={hasActiveTarget || config.showBottomBar}
+          onInsertSibling={() => handleInsertSiblingAfter()}
+          onInsertChild={() => handleInsertChild()}
+          onOutdent={() => handleOutdent()}
+          onIndent={() => handleIndent()}
+          onMoveUp={() => handleMoveUp()}
+          onMoveDown={() => handleMoveDown()}
+          onCycleWidth={() => handleCycleBlockWidth()}
+          onCycleIcon={() => handleCycleIcon(undefined, 1)}
+          onDelete={() => handleDeleteNode()}
+        />
+      )}
 
-      {/* 底部状态栏 */}
-      <footer className="bn-statusbar">
-        <div className="bn-status-left">
-          <span>
-            文字块：<strong>{allNodesFlat.length}</strong>
-          </span>
-          <span className="bn-status-sep">|</span>
-          <span>
-            {config.dockMode === 'auto-hide'
-              ? `靠边自动隐藏 (${
-                  config.dockEdge === 'top'
-                    ? '顶部下拉'
-                    : config.dockEdge === 'left'
-                    ? '左侧滑出'
-                    : '右侧滑出'
-                })`
-              : config.dockMode === 'docked'
-              ? '靠边固定停靠'
-              : activeTab.focusedId
-              ? '焦点编辑态'
-              : activeTab.selectedIds.length > 0
-              ? `已选 ${activeTab.selectedIds.length} 块`
-              : '标准窗口'}
-          </span>
-        </div>
-        <div className="bn-status-right">
-          <span>拖至屏幕边缘自动吸附</span>
-          <span>Alt+Shift+O 靠边</span>
-          <span>Alt+Shift+H 自动隐藏</span>
-        </div>
-      </footer>
+      {/* 底部状态栏（默认隐藏，可通过右上角下拉菜单勾选【显示底部状态栏】开启） */}
+      {config.showStatusBar && (
+        <footer className="bn-statusbar">
+          <div className="bn-status-left">
+            <span>
+              文字块：<strong>{allNodesFlat.length}</strong>
+            </span>
+            <span className="bn-status-sep">|</span>
+            <span>
+              {config.dockMode === 'auto-hide'
+                ? `自动隐藏窗口 (${
+                    config.dockEdge === 'top'
+                      ? '顶部'
+                      : config.dockEdge === 'left'
+                      ? '左侧'
+                      : '右侧'
+                  })`
+                : config.dockMode === 'docked'
+                ? '靠边窗口'
+                : '正常窗口'}
+            </span>
+          </div>
+          <div className="bn-status-right">
+            <span>拖拽至屏幕边缘自动隐藏</span>
+          </div>
+        </footer>
+      )}
 
       {/* 拖拽导入提示遮罩 */}
       {isDraggingFile && (
@@ -1600,7 +1754,7 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* 快捷键说明与尺寸配置弹窗 */}
+      {/* 选项与快捷键设置弹窗 (Ctrl+Alt+P) */}
       {helpModalOpen && (
         <ShortcutHelpModal
           config={config}
@@ -1611,26 +1765,27 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Markdown / .boo 源码实时双向转换弹窗 */}
+      {/* 源码预览与双向转换弹窗 */}
       {sourceModalOpen && (
         <SourcePreviewModal
           nodes={activeTab.nodes}
-          onApplyNodes={(newNodes) => {
+          onApplyNodes={(nextNodes) => {
             updateActiveTab(
               (tab) => ({
                 ...tab,
-                nodes: newNodes,
-                focusedId: newNodes[0]?.id ?? null,
+                nodes: nextNodes,
+                focusedId: nextNodes[0]?.id ?? null,
                 selectedIds: [],
               }),
               true
             );
+            setSourceModalOpen(false);
           }}
           onClose={() => setSourceModalOpen(false)}
         />
       )}
 
-      {/* 多端云同步中心 (GitHub 私人仓库 / Dropbox 网盘 / Gist) */}
+      {/* 文件管理与多端云同步弹窗 (F5) */}
       {syncModalOpen && (
         <CloudSyncModal
           syncConfig={syncConfig}
@@ -1638,14 +1793,129 @@ export const App: React.FC = () => {
           onUpdateSyncConfig={(partial) =>
             setSyncConfig((prev) => ({ ...prev, ...partial }))
           }
-          onReplaceTabsFromCloud={(cloudTabs) => {
-            setTabs(cloudTabs);
-            if (cloudTabs[0]) {
-              setActiveTabId(cloudTabs[0].id);
+          onReplaceTabsFromCloud={(newTabs) => {
+            if (newTabs.length > 0) {
+              setTabs(newTabs);
+              setActiveTabId(newTabs[0].id);
             }
           }}
           onClose={() => setSyncModalOpen(false)}
         />
+      )}
+
+      {/* 文档列表弹窗 (F4) */}
+      {docListModalOpen && (
+        <div
+          className="bn-modal-backdrop"
+          onClick={() => setDocListModalOpen(false)}
+        >
+          <div
+            className="bn-modal-card"
+            style={{ maxWidth: 420 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bn-modal-header">
+              <h3>显示文档列表 (F4)</h3>
+              <button
+                type="button"
+                className="bn-icon-btn"
+                onClick={() => setDocListModalOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="bn-modal-body" style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {tabs.map((t, idx) => (
+                  <div
+                    key={t.id}
+                    onClick={() => {
+                      setActiveTabId(t.id);
+                      setDocListModalOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      border: '1px solid var(--bn-border-color)',
+                      backgroundColor:
+                        t.id === activeTab.id
+                          ? 'var(--bn-select-bg)'
+                          : 'var(--bn-card-bg)',
+                      fontWeight: t.id === activeTab.id ? 600 : 400,
+                    }}
+                  >
+                    <span>
+                      {idx + 1}. {t.title}
+                      {t.isDirty ? ' *' : ''}
+                    </span>
+                    <button
+                      type="button"
+                      className="bn-tab-close"
+                      title="关闭此文档"
+                      onClick={(e) => handleCloseTabById(t.id, e)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 关于 BooguNote 弹窗 */}
+      {aboutModalOpen && (
+        <div
+          className="bn-modal-backdrop"
+          onClick={() => setAboutModalOpen(false)}
+        >
+          <div
+            className="bn-modal-card"
+            style={{ maxWidth: 420 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bn-modal-header">
+              <h3>关于 BooguNote</h3>
+              <button
+                type="button"
+                className="bn-icon-btn"
+                onClick={() => setAboutModalOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div
+              className="bn-modal-body"
+              style={{ padding: '16px', lineHeight: 1.65, fontSize: 13 }}
+            >
+              <p style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
+                BooguNote Next v1.1.0 (跨平台开源重构版)
+              </p>
+              <p style={{ marginBottom: 8 }}>
+                致敬经典 Windows 树形大纲笔记软件{' '}
+                <a
+                  href="https://github.com/anonymous1999/BooguNote"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bn-inline-link"
+                >
+                  BooguNote
+                </a>
+                ，默认采用经典窄边框窗口与拖拽至屏幕边缘自动隐藏交互，原生支持标准{' '}
+                <code>.md</code> 与旧版 <code>.boo</code> 双向无损读写。
+              </p>
+              <p style={{ color: 'var(--bn-text-muted)', fontSize: 12 }}>
+                开源协议：MIT License · 支持平台：Windows / macOS / Linux /
+                Android / iOS
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
