@@ -1,0 +1,30 @@
+- BooguNote Next (现代跨平台重构版) <!-- boo:{"bold":true,"branch":true,"color":"#ffffff","bg":"#1e40af"} -->
+  - 欢迎使用全新重构的 BooguNote！ <!-- boo:{"icon":"star","bold":true,"branch":true} -->
+    - 本项目以标准 Markdown (.md) 为核心存储格式，同时 100% 兼容导入与导出原版 .boo (XML) 文档。
+    - 保留了原版最精髓的“三种文字块状态”、“三种宽度切换”、“树枝连接线”与“全键盘极速操作流”。
+    - 新增了原版不具备的：无限层级撤销/重做 (Ctrl+Z / Ctrl+Y)、跨平台支持、多标签页与多主题切换。
+  - 核心概念：三态与三宽 <!-- boo:{"icon":"idea","bold":true,"branch":true} -->
+    - 1. 三种文字块选择状态 <!-- boo:{"bold":true,"branch":true} -->
+      - 焦点态 (Focused)：实线高亮外框，可直接输入多行文字。
+      - 被选择 (Selected)：虚线边框与高亮底色（支持 Ctrl+单击 多选、Shift+单击 范围选择、Alt+单击 选中整棵子树）。
+      - 未选择 (Unselected)：无边框干扰，保持大纲视图纯粹干净。
+    - 2. 三种文字块宽度模式（按 Ctrl+U 或右键前方块切换） <!-- boo:{"bold":true,"branch":true} -->
+      - 窄块 (Narrow)：当前默认紧凑卡片宽度，适合树状多层级并排浏览。
+      - 宽块 (Wide)：宽幅段落模式（此块即为宽块示例，适合长段文字记录与代码摘录）。 <!-- boo:{"width":"wide","bg":"#eff6ff","color":"#1e3a8a"} -->
+      - 单行收缩 (Shrink)：超长文字自动浓缩为单行省略号显示，适合快速折叠长篇内容。 <!-- boo:{"width":"shrink"} -->
+  - 经典全键盘快捷键一览 <!-- boo:{"icon":"flag","bold":true,"branch":true} -->
+    - 新建与编辑文字块 <!-- boo:{"bold":true,"branch":true} -->
+      - Ctrl + Enter：在下方新建【同级】文字块 <!-- boo:{"icon":"tick"} -->
+      - Alt + Enter：在上方新建【同级】文字块 <!-- boo:{"icon":"tick"} -->
+      - Shift + Enter：新建【子级】文字块 <!-- boo:{"icon":"tick"} -->
+      - Ctrl + \ ：从当前光标位置将文字块一分为二（切割文字块） <!-- boo:{"icon":"star"} -->
+      - Ctrl + Delete：删除当前焦点或选中的文字块 <!-- boo:{"icon":"cross"} -->
+    - 移动与层级调整 <!-- boo:{"bold":true,"branch":true} -->
+      - Ctrl + Up / Down：上下移动文字块（连同子分支）
+      - Ctrl + Left / Right（或 Shift+Tab / Tab）：向左升级 / 向右降级文字块
+    - 样式与视觉开关 <!-- boo:{"bold":true,"branch":true} -->
+      - Ctrl + U：循环切换块宽度（窄 -> 宽 -> 单行收缩）
+      - Ctrl + B：切换文字块粗体
+      - Ctrl + = / Ctrl + -：循环切换 7 种经典图标
+      - Alt + B / Shift + Alt + B：开启 / 关闭当前节点的父子“树枝线”
+      - Alt + T / Alt + G：设置文字颜色 / 背景颜色
