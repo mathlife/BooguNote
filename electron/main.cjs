@@ -24,11 +24,31 @@ let isProgrammaticMove = false;
 let lastExpandOrMoveTime = 0;
 
 // 单实例锁：禁止同时运行多个实例，已有实例时激活并聚焦现有窗口
+let startupFilePath = null;
+function extractFilePathFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (a && !a.startsWith('-') && !a.startsWith('--')) {
+      if (/\.(md|markdown|boo|txt)$/i.test(a)) {
+        try {
+          return path.resolve(a);
+        } catch {
+          return a;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+startupFilePath = extractFilePathFromArgv(process.argv);
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, commandLine) => {
     if (mainWindow) {
       if (dockState.mode === 'auto-hide' && dockState.isCollapsed) {
         expandAutoHideWindow();
@@ -36,6 +56,11 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
+
+      const externalFile = extractFilePathFromArgv(commandLine);
+      if (externalFile) {
+        mainWindow.webContents.send('boogu:open-file', externalFile);
+      }
     }
   });
 }
@@ -690,6 +715,12 @@ ipcMain.handle('boogu:write-file', async (_event, filePath, content) => {
   } catch (err) {
     throw new Error(err.message);
   }
+});
+
+ipcMain.handle('boogu:get-startup-file', () => {
+  const f = startupFilePath;
+  startupFilePath = null;
+  return f;
 });
 
 app.whenReady().then(() => {

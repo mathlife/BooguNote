@@ -18,5 +18,11 @@ contextBridge.exposeInMainWorld('booguDesktop', {
   showSaveDialog: (options) => ipcRenderer.invoke('boogu:show-save-dialog', options),
   readFile: (filePath) => ipcRenderer.invoke('boogu:read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('boogu:write-file', filePath, content),
+  getStartupFile: () => ipcRenderer.invoke('boogu:get-startup-file'),
+  onOpenFile: (handler) => {
+    const cb = (_event, filePath) => handler(filePath);
+    ipcRenderer.on('boogu:open-file', cb);
+    return () => ipcRenderer.removeListener('boogu:open-file', cb);
+  },
 });
 

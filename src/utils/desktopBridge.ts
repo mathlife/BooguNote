@@ -15,6 +15,8 @@ declare global {
       showSaveDialog?: (options?: any) => Promise<{ canceled: boolean; filePath: string }>;
       readFile?: (filePath: string) => Promise<string>;
       writeFile?: (filePath: string, content: string) => Promise<boolean>;
+      getStartupFile?: () => Promise<string | null>;
+      onOpenFile?: (callback: (filePath: string) => void) => () => void;
     };
   }
 }

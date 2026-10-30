@@ -72,6 +72,7 @@ import { MobileActionDock } from './components/MobileActionDock';
 import { MainMenuDropdown } from './components/MainMenuDropdown';
 
 const STORAGE_KEY_TABS = 'boogunote_next_tabs_v2';
+const STORAGE_KEY_ACTIVE_TAB = 'boogunote_next_active_tab_v2';
 const STORAGE_KEY_CONFIG = 'boogunote_next_config_v5';
 const STORAGE_KEY_SYNC = 'boogunote_next_sync_v1';
 
@@ -182,9 +183,29 @@ export const App: React.FC = () => {
     return createInitialTabs();
   });
 
-  const [activeTabId, setActiveTabId] = useState<string>(
-    () => tabs[0]?.id || 'tab_init'
-  );
+  // 默认定位至上次关闭时正在编辑的笔记标签页
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    try {
+      const savedActiveId = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB);
+      if (savedActiveId && tabs.some((t) => t.id === savedActiveId)) {
+        return savedActiveId;
+      }
+    } catch {
+      // 忽略读取异常
+    }
+    return tabs[0]?.id || 'tab_init';
+  });
+
+  // 持久化上次关闭时当前正在查看与编辑的笔记标签页
+  useEffect(() => {
+    if (activeTabId) {
+      try {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, activeTabId);
+      } catch {
+        // 忽略存储异常
+      }
+    }
+  }, [activeTabId]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [helpModalOpen, setHelpModalOpen] = useState(false);
@@ -210,6 +231,105 @@ export const App: React.FC = () => {
   const lastClickedIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 启动时自动从磁盘重新读取并同步已关联物理文件的笔记内容（若外部更新且当前未修改），以及处理外部双击文件打开
+  useEffect(() => {
+    if (!window.booguDesktop?.readFile) return;
+
+    const openPathIntoTab = async (filePath: string) => {
+      try {
+        const content = await window.booguDesktop!.readFile!(filePath);
+        const isBoo =
+          filePath.toLowerCase().endsWith('.boo') ||
+          content.trimStart().startsWith('<?xml') ||
+          content.trimStart().startsWith('<root');
+        const parsed = isBoo
+          ? parseBooXml(content)
+          : parseMarkdownToNodes(content);
+        const fileName = filePath.split(/[\\/]/).pop() || filePath;
+
+        setTabs((prev) => {
+          const existingIdx = prev.findIndex((t) => t.filePath === filePath);
+          if (existingIdx !== -1) {
+            setActiveTabId(prev[existingIdx].id);
+            return prev;
+          }
+          const newTab: DocTab = {
+            id: 'tab_' + generateNodeId(),
+            title: fileName,
+            filePath,
+            nodes: parsed,
+            focusedId: parsed[0]?.id ?? null,
+            selectedIds: [],
+            isDirty: false,
+            undoStack: [],
+            redoStack: [],
+          };
+          setActiveTabId(newTab.id);
+          return [...prev, newTab];
+        });
+      } catch (err) {
+        console.error('加载指定文件失败:', err);
+      }
+    };
+
+    // 1. 若通过命令行或系统关联文件启动，直接开启指定笔记
+    if (window.booguDesktop.getStartupFile) {
+      window.booguDesktop.getStartupFile().then((filePath) => {
+        if (filePath) {
+          openPathIntoTab(filePath);
+        }
+      });
+    }
+
+    // 2. 监听运行中从系统双击打开新文件
+    let unsubOpenFile: (() => void) | undefined;
+    if (window.booguDesktop.onOpenFile) {
+      unsubOpenFile = window.booguDesktop.onOpenFile((filePath) => {
+        if (filePath) openPathIntoTab(filePath);
+      });
+    }
+
+    // 3. 启动时自动重新拉取上次打开文件的最新磁盘数据
+    const syncDiskNotes = async () => {
+      let hasChanges = false;
+      const refreshedTabs = await Promise.all(
+        tabs.map(async (tab) => {
+          if (
+            tab.filePath &&
+            (tab.filePath.includes('/') || tab.filePath.includes('\\')) &&
+            !tab.isDirty
+          ) {
+            try {
+              const diskContent = await window.booguDesktop!.readFile!(
+                tab.filePath
+              );
+              const isBoo =
+                tab.filePath.toLowerCase().endsWith('.boo') ||
+                diskContent.trimStart().startsWith('<?xml') ||
+                diskContent.trimStart().startsWith('<root');
+              const parsed = isBoo
+                ? parseBooXml(diskContent)
+                : parseMarkdownToNodes(diskContent);
+              hasChanges = true;
+              return { ...tab, nodes: parsed };
+            } catch {
+              // 若文件已被移动或不存在，保留现有缓存
+            }
+          }
+          return tab;
+        })
+      );
+      if (hasChanges) {
+        setTabs(refreshedTabs);
+      }
+    };
+    syncDiskNotes();
+
+    return () => {
+      if (unsubOpenFile) unsubOpenFile();
+    };
+  }, []);
 
   // 订阅原生桌面窗口因拖拽到屏幕边缘或快捷键引发的停靠与置顶状态变更
   useEffect(() => {
