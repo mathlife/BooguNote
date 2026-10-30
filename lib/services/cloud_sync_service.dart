@@ -5,10 +5,64 @@ import '../models/doc_tab.dart';
 import '../parsers/md_parser.dart';
 import '../parsers/boo_parser.dart';
 
+/// 同步操作统一返回结果
+class SyncResult {
+  final bool success;
+  final String message;
+  final String? newGistId;
+  final List<DocTab>? tabs;
+
+  SyncResult({
+    required this.success,
+    required this.message,
+    this.newGistId,
+    this.tabs,
+  });
+}
+
 /// 纯原生多端无服务端云同步服务（支持 GitHub 私人仓库、GitHub Gist 与 WebDAV）
 class CloudSyncService {
   static final HttpClient _httpClient = HttpClient()
     ..connectionTimeout = const Duration(seconds: 15);
+
+  /// 执行推送到云端（支持返回结构化 SyncResult）
+  static Future<SyncResult> pushNotes(CloudSyncConfig config, List<DocTab> tabs) async {
+    try {
+      if (config.provider == 'github-gist') {
+        final prevGistId = config.gistId;
+        final msg = await _pushToGitHubGist(config, tabs);
+        final newGistId = config.gistId != prevGistId ? config.gistId : null;
+        return SyncResult(success: true, message: msg, newGistId: newGistId);
+      } else if (config.provider == 'webdav') {
+        final msg = await _pushToWebDAV(config, tabs);
+        return SyncResult(success: true, message: msg);
+      } else {
+        final msg = await _pushToGitHubRepo(config, tabs);
+        return SyncResult(success: true, message: msg);
+      }
+    } catch (e) {
+      return SyncResult(success: false, message: e.toString());
+    }
+  }
+
+  /// 执行从云端拉取恢复（支持返回结构化 SyncResult）
+  static Future<SyncResult> pullNotes(CloudSyncConfig config) async {
+    try {
+      Map<String, dynamic> res;
+      if (config.provider == 'github-gist') {
+        res = await _pullFromGitHubGist(config);
+      } else if (config.provider == 'webdav') {
+        res = await _pullFromWebDAV(config);
+      } else {
+        res = await _pullFromGitHubRepo(config);
+      }
+      final tabs = (res['tabs'] as List<dynamic>?)?.cast<DocTab>();
+      final msg = res['message'] as String? ?? '拉取成功';
+      return SyncResult(success: true, message: msg, tabs: tabs);
+    } catch (e) {
+      return SyncResult(success: false, message: e.toString());
+    }
+  }
 
   /// 执行推送到云端
   static Future<String> pushToCloud(CloudSyncConfig config, List<DocTab> tabs) async {

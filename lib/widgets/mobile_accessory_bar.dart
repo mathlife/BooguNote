@@ -176,3 +176,4 @@ class MobileAccessoryBar extends StatelessWidget {
     );
   }
 }
+
