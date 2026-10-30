@@ -46,3 +46,4 @@ class BranchConnectorPainter extends CustomPainter {
         oldDelegate.strokeWidth != strokeWidth;
   }
 }
+

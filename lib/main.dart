@@ -16,7 +16,6 @@ import 'widgets/branch_connector.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await WindowService.init();
   runApp(const BooguNoteNativeApp());
 }
 
@@ -88,6 +87,7 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
       _activeTabId = activeId;
     });
 
+    await WindowService.init(onToast: _showToast);
     _syncDiskFiles();
   }
 
@@ -492,48 +492,63 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
         const SingleActivator(LogicalKeyboardKey.keyW, control: true): () => _closeTab(_activeTab.id),
         const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
         const SingleActivator(LogicalKeyboardKey.keyY, control: true): _redo,
+        const SingleActivator(LogicalKeyboardKey.keyO, control: true, alt: true): WindowService.toggleDocked,
+        const SingleActivator(LogicalKeyboardKey.keyO, control: true, shift: true): WindowService.toggleAutoHide,
       },
       child: Focus(
         autofocus: true,
-        child: Scaffold(
-          body: Column(
-            children: [
-              // 1. 顶部标签栏与主菜单
-              _buildTopBar(),
+        child: ValueListenableBuilder<bool>(
+          valueListenable: WindowService.isCollapsedNotifier,
+          builder: (context, isCollapsed, _) {
+            if (isCollapsed) {
+              return MouseRegion(
+                onEnter: (_) => WindowService.expandAutoHide(),
+                child: Container(
+                  color: const Color(0xFF2563EB),
+                ),
+              );
+            }
+            return Scaffold(
+              body: Column(
+                children: [
+                  // 1. 顶部标签栏与主菜单
+                  _buildTopBar(),
 
-              // 2. 可选顶部工具栏 (含新建同级、新建子块、升级、降级、移动等常用按钮)
-              if (_config.showToolbar) _buildToolbar(),
+                  // 2. 可选顶部工具栏 (含新建同级、新建子块、升级、降级、移动等常用按钮)
+                  if (_config.showToolbar) _buildToolbar(),
 
-              // 3. 核心大纲树内容区
-              Expanded(
-                child: _buildOutlineView(),
+                  // 3. 核心大纲树内容区
+                  Expanded(
+                    child: _buildOutlineView(),
+                  ),
+
+                  // 4. 底部状态与提示
+                  if (_config.showStatusBar) _buildStatusBar(),
+                ],
               ),
-
-              // 4. 底部状态与提示
-              if (_config.showStatusBar) _buildStatusBar(),
-            ],
-          ),
-          floatingActionButton: _saveToastMsg != null
-              ? Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.check, size: 14, color: Colors.white),
-                      const SizedBox(width: 6),
-                      Text(
-                        _saveToastMsg!,
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+              floatingActionButton: _saveToastMsg != null
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
                       ),
-                    ],
-                  ),
-                )
-              : null,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check, size: 14, color: Colors.white),
+                          const SizedBox(width: 6),
+                          Text(
+                            _saveToastMsg!,
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    )
+                  : null,
+            );
+          },
         ),
       ),
     );
@@ -659,6 +674,18 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
                 case 'dock':
                   WindowService.toggleDocked();
                   break;
+                case 'autoHide':
+                  WindowService.toggleAutoHide();
+                  break;
+                case 'dockRight':
+                  WindowService.setAutoHideMode(WindowDockEdge.right);
+                  break;
+                case 'dockLeft':
+                  WindowService.setAutoHideMode(WindowDockEdge.left);
+                  break;
+                case 'dockTop':
+                  WindowService.setAutoHideMode(WindowDockEdge.top);
+                  break;
                 case 'top':
                   _config.alwaysOnTop = !_config.alwaysOnTop;
                   WindowService.setAlwaysOnTop(_config.alwaysOnTop);
@@ -688,7 +715,18 @@ class _OutlinerMainScreenState extends State<OutlinerMainScreen> {
               const PopupMenuItem(value: 'expandAll', child: Text('展开所有分支')),
               const PopupMenuItem(value: 'collapseAll', child: Text('折叠所有分支')),
               const PopupMenuDivider(),
-              const PopupMenuItem(value: 'dock', child: Text('靠边窗口 (Win+O)')),
+              PopupMenuItem(
+                value: 'dock',
+                child: Text('${WindowService.dockMode == WindowDockMode.docked ? '✓ ' : ''}靠边停靠模式 (Win+O)'),
+              ),
+              PopupMenuItem(
+                value: 'autoHide',
+                child: Text('${WindowService.dockMode == WindowDockMode.autoHide ? '✓ ' : ''}靠边自动隐藏 (Shift+Win+O)'),
+              ),
+              const PopupMenuItem(value: 'dockRight', child: Text('  ↳ 贴靠右侧边缘 (自动隐藏)')),
+              const PopupMenuItem(value: 'dockLeft', child: Text('  ↳ 贴靠左侧边缘 (自动隐藏)')),
+              const PopupMenuItem(value: 'dockTop', child: Text('  ↳ 贴靠顶部边缘 (自动隐藏)')),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'top',
                 child: Text('${_config.alwaysOnTop ? '✓ ' : ''}设置/取消 窗口置顶'),

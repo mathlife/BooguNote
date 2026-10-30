@@ -12,6 +12,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   window_manager: ^0.3.9
+  screen_retriever: ^0.1.9
   hotkey_manager: ^0.2.3
   file_picker: ^8.0.0
   xml: ^6.5.0
