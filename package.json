@@ -20,6 +20,8 @@
     "appId": "com.boogunote.next",
     "productName": "BooguNote",
     "icon": "public/icon.png",
+    "compression": "maximum",
+    "asar": true,
     "directories": {
       "output": "release"
     },

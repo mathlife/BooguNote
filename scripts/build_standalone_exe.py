@@ -11,6 +11,7 @@
 
 import base64
 import glob
+import gzip
 import re
 import subprocess
 from pathlib import Path
@@ -49,6 +50,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -60,8 +62,24 @@ namespace BooguNoteStandalone
 {
     static class Program
     {
-        private static readonly string EmbeddedHtmlBase64 = "__BASE64_PAYLOAD__";
+        private static readonly string EmbeddedHtmlGzipBase64 = "__BASE64_PAYLOAD__";
         private static readonly string EmbeddedIconSvgBase64 = "__ICON_BASE64__";
+
+        private static byte[] DecompressGZip(byte[] data)
+        {
+            using (MemoryStream ms = new MemoryStream(data))
+            using (GZipStream gz = new GZipStream(ms, CompressionMode.Decompress))
+            using (MemoryStream outMs = new MemoryStream())
+            {
+                byte[] buf = new byte[8192];
+                int r;
+                while ((r = gz.Read(buf, 0, buf.Length)) > 0)
+                {
+                    outMs.Write(buf, 0, r);
+                }
+                return outMs.ToArray();
+            }
+        }
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -172,7 +190,7 @@ namespace BooguNoteStandalone
                 return;
             }
 
-            byte[] htmlBytes = Convert.FromBase64String(EmbeddedHtmlBase64);
+            byte[] htmlBytes = DecompressGZip(Convert.FromBase64String(EmbeddedHtmlGzipBase64));
             byte[] iconBytes = Convert.FromBase64String(EmbeddedIconSvgBase64);
 
             // 分配空闲本地回环端口
@@ -735,7 +753,8 @@ namespace BooguNoteStandalone
 def main():
     RELEASE.mkdir(parents=True, exist_ok=True)
     html_bytes = build_single_html()
-    b64_html = base64.b64encode(html_bytes).decode("ascii")
+    compressed_html = gzip.compress(html_bytes, 9)
+    b64_html = base64.b64encode(compressed_html).decode("ascii")
 
     icon_path = ROOT / "public" / "icon.svg"
     icon_bytes = icon_path.read_bytes() if icon_path.exists() else b"<svg></svg>"
