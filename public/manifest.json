@@ -1,0 +1,19 @@
+{
+  "name": "BooguNote Next - 跨平台树形大纲笔记",
+  "short_name": "BooguNote",
+  "description": "支持 PC / Web / Android / iOS 的现代树形大纲笔记，兼容 Markdown 与 .boo 及 GitHub/Dropbox 云同步",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e40af",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

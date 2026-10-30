@@ -1,0 +1,10 @@
+{
+  "appId": "com.boogunote.next",
+  "appName": "BooguNote",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
+
