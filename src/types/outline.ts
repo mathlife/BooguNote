@@ -71,16 +71,28 @@ export interface DocTab {
   redoStack: OutlineNode[][]; // 重做栈
 }
 
+// 桌面原生窗口停靠模式与边缘方向
+export type WindowDockMode = 'normal' | 'docked' | 'auto-hide';
+export type WindowDockEdge = 'right' | 'top' | 'left';
+
+export interface WindowDockState {
+  mode: WindowDockMode;
+  edge: WindowDockEdge;
+  alwaysOnTop: boolean;
+  isCollapsed?: boolean;
+}
+
 // 全局视图与外观配置
 export interface AppConfig {
   theme: 'classic' | 'modern-light' | 'modern-dark';
   showAllBranches: boolean; // 全局显示所有树枝连接线（默认开启以保证树结构视觉闭合）
   closedBlockCard: boolean; // 节点块是否显示闭合卡片边框（默认 true，视觉更美观规整）
-  narrowWidth: number;      // 窄块像素宽度（默认 340px）
+  narrowWidth: number;      // 窄块像素宽度（默认 360px）
   wideWidth: number;        // 宽块像素宽度（默认 720px）
   indentSize: number;       // 每层缩进像素宽度（默认 28px）
   fontSize: number;         // 字体大小（默认 14px）
-  dockMode: 'normal' | 'right-sidebar'; // 窗口模式：标准视图或右侧停靠窄栏模式
+  dockMode: WindowDockMode; // 窗口停靠模式：标准 | 靠边固定窄框 | 靠边自动吸附隐藏
+  dockEdge: WindowDockEdge; // 停靠边缘方向：右侧 | 顶部下拉 | 左侧
 }
 
 // 云同步提供商类型

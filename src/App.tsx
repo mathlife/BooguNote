@@ -13,6 +13,10 @@ import {
   Columns,
   Bold,
   PanelRight,
+  PanelTop,
+  PanelLeft,
+  Pin,
+  PinOff,
   Keyboard,
   Sun,
   Moon,
@@ -30,9 +34,15 @@ import {
   NodeIconType,
   BlockWidthMode,
   CloudSyncConfig,
+  WindowDockMode,
+  WindowDockEdge,
 } from './types/outline';
 import { parseBooXml, exportToBooXml, generateNodeId } from './utils/booParser';
 import { parseMarkdownToNodes, exportToMarkdown } from './utils/mdParser';
+import {
+  setNativeWindowDock,
+  subscribeNativeDockState,
+} from './utils/desktopBridge';
 import {
   cloneTree,
   createEmptyNode,
@@ -64,7 +74,7 @@ import { CloudSyncModal } from './components/CloudSyncModal';
 import { MobileActionDock } from './components/MobileActionDock';
 
 const STORAGE_KEY_TABS = 'boogunote_next_tabs_v2';
-const STORAGE_KEY_CONFIG = 'boogunote_next_config_v2';
+const STORAGE_KEY_CONFIG = 'boogunote_next_config_v3';
 const STORAGE_KEY_SYNC = 'boogunote_next_sync_v1';
 
 // 构建默认初始标签页（现代指南.md + 原版教程.boo）
@@ -100,11 +110,12 @@ const DEFAULT_CONFIG: AppConfig = {
   theme: 'modern-light',
   showAllBranches: true,
   closedBlockCard: true,
-  narrowWidth: 360,
-  wideWidth: 720,
+  narrowWidth: 340,
+  wideWidth: 700,
   indentSize: 28,
   fontSize: 14,
   dockMode: 'normal',
+  dockEdge: 'right',
 };
 
 const DEFAULT_SYNC_CONFIG: CloudSyncConfig = {
@@ -124,12 +135,22 @@ export const App: React.FC = () => {
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
-      if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          dockMode: 'normal', // 每次启动以标准窗口初始化，避免误锁状态
+        };
+      }
     } catch {
       // 忽略读取异常
     }
     return DEFAULT_CONFIG;
   });
+
+  // 当前窗口是否正处于靠边自动隐藏的收起感应条状态
+  const [isCollapsedEdge, setIsCollapsedEdge] = useState(false);
 
   // 加载云同步配置
   const [syncConfig, setSyncConfig] = useState<CloudSyncConfig>(() => {
@@ -178,6 +199,45 @@ export const App: React.FC = () => {
   const lastClickedIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 订阅原生桌面窗口因拖拽贴边或快捷键引发的停靠状态变更
+  useEffect(() => {
+    const unsubscribe = subscribeNativeDockState((nativeState) => {
+      setIsCollapsedEdge(Boolean(nativeState.isCollapsed));
+      setConfig((prev) => {
+        if (
+          prev.dockMode === nativeState.mode &&
+          prev.dockEdge === nativeState.edge
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          dockMode: nativeState.mode,
+          dockEdge: nativeState.edge,
+        };
+      });
+    });
+    return unsubscribe;
+  }, []);
+
+  // 切换窗口停靠模式（调用原生宿主调整真实物理窗口尺寸与位置）
+  const handleChangeDockState = useCallback(
+    async (nextMode: WindowDockMode, nextEdge?: WindowDockEdge) => {
+      const edge = nextEdge || config.dockEdge || 'right';
+      setConfig((prev) => ({
+        ...prev,
+        dockMode: nextMode,
+        dockEdge: edge,
+      }));
+      await setNativeWindowDock({
+        mode: nextMode,
+        edge,
+        alwaysOnTop: nextMode !== 'normal',
+      });
+    },
+    [config.dockEdge]
+  );
 
   // 持久化配置、同步设置与标签页
   useEffect(() => {
@@ -908,9 +968,19 @@ export const App: React.FC = () => {
     activeTab.focusedId || activeTab.selectedIds.length > 0
   );
 
+  // 当窗口处于靠边自动吸附收起（6px 边缘感应条）状态时，显示高对比度感应条
+  if (isCollapsedEdge) {
+    return (
+      <div
+        className={`bn-edge-sensor-strip edge-${config.dockEdge}`}
+        title="BooguNote 靠边隐藏中 - 鼠标移入自动滑出显示窗口"
+      />
+    );
+  }
+
   return (
     <div
-      className={`bn-app-shell theme-${config.theme} dock-${config.dockMode}`}
+      className={`bn-app-shell theme-${config.theme} dock-mode-${config.dockMode}`}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDraggingFile(true);
@@ -943,7 +1013,11 @@ export const App: React.FC = () => {
           <div className="bn-logo-badge">
             <span className="bn-logo-square">B</span>
             <span className="bn-logo-text">BooguNote</span>
-            <span className="bn-version-pill">All-in-One</span>
+            {config.dockMode !== 'normal' && (
+              <span className="bn-version-pill">
+                {config.dockMode === 'auto-hide' ? '靠边自动隐藏' : '靠边停靠'}
+              </span>
+            )}
           </div>
 
           {/* 文档标签栏 */}
@@ -1038,7 +1112,7 @@ export const App: React.FC = () => {
               onClick={() => setSyncModalOpen(true)}
             >
               <Cloud size={14} />
-              <span>云同步 (GitHub / Dropbox)</span>
+              <span>云同步</span>
             </button>
 
             <button
@@ -1162,8 +1236,90 @@ export const App: React.FC = () => {
 
           <div className="bn-toolbar-sep" />
 
-          {/* 搜索、主题、靠边抽屉模式与快捷键设置 */}
+          {/* 原生桌面靠边停靠、自动吸附隐藏、主题与设置控制 */}
           <div className="bn-toolbar-group">
+            {/* 1. 靠边窄框停靠开关 (物理调整窗口大小并贴边) */}
+            <button
+              type="button"
+              className={`bn-toolbar-btn ${
+                config.dockMode !== 'normal' ? 'active-dock' : ''
+              }`}
+              title="切换【靠边窄框停靠模式 (Alt+Shift+O)】与【标准大窗口模式】—— 自动调整程序物理窗口尺寸"
+              onClick={() => {
+                if (config.dockMode === 'normal') {
+                  handleChangeDockState('docked', config.dockEdge || 'right');
+                } else {
+                  handleChangeDockState('normal');
+                }
+              }}
+            >
+              <PanelRight size={14} />
+              <span>{config.dockMode === 'normal' ? '靠边停靠' : '退出靠边'}</span>
+            </button>
+
+            {/* 2. 靠边自动吸附隐藏开关 (鼠标移开自动收起，移到边缘自动下拉/滑出) */}
+            <button
+              type="button"
+              className={`bn-toolbar-btn ${
+                config.dockMode === 'auto-hide' ? 'primary' : ''
+              }`}
+              title="开启/关闭【靠边自动吸附隐藏 (Alt+Shift+H)】：鼠标移出窗口自动缩回屏幕边缘，鼠标移到边缘自动下拉/滑出显示窗口主体（也可直接将窗口拖到屏幕顶边/右边自动触发）"
+              onClick={() => {
+                if (config.dockMode !== 'auto-hide') {
+                  handleChangeDockState('auto-hide', config.dockEdge || 'right');
+                } else {
+                  handleChangeDockState('docked', config.dockEdge || 'right');
+                }
+              }}
+            >
+              {config.dockMode === 'auto-hide' ? (
+                <PinOff size={14} />
+              ) : (
+                <Pin size={14} />
+              )}
+              <span>
+                {config.dockMode === 'auto-hide' ? '已自动隐藏' : '自动隐藏'}
+              </span>
+            </button>
+
+            {/* 3. 当处于靠边或自动隐藏模式时，可一键切换停靠方位：顶部下拉 / 右侧滑出 / 左侧滑出 */}
+            {config.dockMode !== 'normal' && (
+              <div className="bn-dock-edge-switcher">
+                <button
+                  type="button"
+                  className={`bn-toolbar-icon-btn ${
+                    config.dockEdge === 'top' ? 'active' : ''
+                  }`}
+                  title="停靠在屏幕【顶部】（鼠标移至屏幕顶边自动下拉显示窗口）"
+                  onClick={() => handleChangeDockState(config.dockMode, 'top')}
+                >
+                  <PanelTop size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={`bn-toolbar-icon-btn ${
+                    config.dockEdge === 'right' ? 'active' : ''
+                  }`}
+                  title="停靠在屏幕【右侧】（鼠标移至屏幕右边自动滑出显示窗口）"
+                  onClick={() =>
+                    handleChangeDockState(config.dockMode, 'right')
+                  }
+                >
+                  <PanelRight size={14} />
+                </button>
+                <button
+                  type="button"
+                  className={`bn-toolbar-icon-btn ${
+                    config.dockEdge === 'left' ? 'active' : ''
+                  }`}
+                  title="停靠在屏幕【左侧】（鼠标移至屏幕左边自动滑出显示窗口）"
+                  onClick={() => handleChangeDockState(config.dockMode, 'left')}
+                >
+                  <PanelLeft size={14} />
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               className={`bn-toolbar-icon-btn ${searchOpen ? 'active' : ''}`}
@@ -1174,23 +1330,6 @@ export const App: React.FC = () => {
               }}
             >
               <Search size={15} />
-            </button>
-
-            <button
-              type="button"
-              className={`bn-toolbar-icon-btn ${
-                config.dockMode === 'right-sidebar' ? 'active' : ''
-              }`}
-              title="切换【经典靠边窄窗停靠模式】与【标准宽屏模式】"
-              onClick={() =>
-                setConfig((prev) => ({
-                  ...prev,
-                  dockMode:
-                    prev.dockMode === 'normal' ? 'right-sidebar' : 'normal',
-                }))
-              }
-            >
-              <PanelRight size={15} />
             </button>
 
             <button
@@ -1354,24 +1493,27 @@ export const App: React.FC = () => {
           </span>
           <span className="bn-status-sep">|</span>
           <span>
-            {activeTab.focusedId
-              ? '焦点编辑态 (高亮闭合框)'
+            {config.dockMode === 'auto-hide'
+              ? `靠边自动隐藏 (${
+                  config.dockEdge === 'top'
+                    ? '顶部下拉'
+                    : config.dockEdge === 'left'
+                    ? '左侧滑出'
+                    : '右侧滑出'
+                })`
+              : config.dockMode === 'docked'
+              ? '靠边固定停靠'
+              : activeTab.focusedId
+              ? '焦点编辑态'
               : activeTab.selectedIds.length > 0
-              ? `已选 ${activeTab.selectedIds.length} 块 (虚线闭合框)`
-              : '浏览态'}
+              ? `已选 ${activeTab.selectedIds.length} 块`
+              : '标准窗口'}
           </span>
-          {syncConfig.lastSyncTime && (
-            <>
-              <span className="bn-status-sep">|</span>
-              <span>已同步：{syncConfig.lastSyncTime}</span>
-            </>
-          )}
         </div>
         <div className="bn-status-right">
-          <span>支持 PC / Web / Android / iOS</span>
-          <span>Ctrl+Enter 同级新建</span>
-          <span>Shift+Enter 子级新建</span>
-          <span>Ctrl+U 切换宽度</span>
+          <span>拖至屏幕边缘自动吸附</span>
+          <span>Alt+Shift+O 靠边</span>
+          <span>Alt+Shift+H 自动隐藏</span>
         </div>
       </footer>
 
